@@ -1,0 +1,17 @@
+name: Build Geode Mod
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Mod
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          combine: true
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: True480FPSMod
+          path: ${{ steps.build.outputs.build-output }}
