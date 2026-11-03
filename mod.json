@@ -5,8 +5,8 @@
     },
     "id": "yingseo.true480fps.unlocker",
     "name": "True 480Hz HyperEngine",
-    "version": "v2.1.0",
+    "version": "v2.2.0",
     "developer": "YingSeo",
-    "description": "480 FPS Hard-Lock, 480Hz Input Polling, Win11 MMCSS Kernel Boost & 60Hz Tear Diffuser.",
+    "description": "480 FPS Hard-Lock, Win11 MMCSS Kernel Boost & 480Hz Input Polling.",
     "early-load": true
 }
