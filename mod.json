@@ -3,10 +3,10 @@
     "gd": {
         "win": "2.2081"
     },
-    "id": "custom.true480fps.unlocker",
+    "id": "yingseo.true480fps.unlocker",
     "name": "True 480Hz HyperEngine",
-    "version": "v2.0.0",
-    "developer": "CustomMod",
+    "version": "v2.1.0",
+    "developer": "YingSeo",
     "description": "480 FPS Hard-Lock, 480Hz Input Polling, Win11 MMCSS Kernel Boost & 60Hz Tear Diffuser.",
     "early-load": true
 }
