@@ -1,4 +1,5 @@
 name: Build Geode Mod
+
 on: [push, workflow_dispatch]
 
 jobs:
@@ -6,15 +7,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Setup Geode CLI
+        uses: geode-sdk/install-geode-cli@main
 
-      - name: Build Geode Mod
-        uses: geode-sdk/build-geode-mod@main
-        with:
-          combine: true
-          target: Win64
+      - name: Build Mod
+        run: geode package new --binary-only || geode build --config Release
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: True480FPSMod
-          path: ${{ steps.build.outputs.build-output }}
+          path: build/*.geode
