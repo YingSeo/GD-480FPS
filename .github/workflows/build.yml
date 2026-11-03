@@ -6,10 +6,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Mod
+
+      - name: Build Geode Mod
         uses: geode-sdk/build-geode-mod@main
         with:
           combine: true
+          target: Win64
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
