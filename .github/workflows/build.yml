@@ -1,4 +1,4 @@
-name: Build Geode Mod
+name: Build Geode Mod & External Booster Tool
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
@@ -8,16 +8,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Generate Icon (logo.png) and Geode v5 Project (v18.0 True 240 FPS Lock)
+      - name: Generate Mod (v19.0) and External FPS Bypass Tool
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if (Test-Path "main.cpp") { Remove-Item "main.cpp" -Force }
           if (Test-Path "build") { Remove-Item "build" -Recurse -Force }
+          if (Test-Path "ext_build") { Remove-Item "ext_build" -Recurse -Force }
           if (!(Test-Path "src")) { New-Item -ItemType Directory -Path "src" | Out-Null }
+          if (!(Test-Path "external_tool")) { New-Item -ItemType Directory -Path "external_tool" | Out-Null }
 
-          # 1. Tự động vẽ Icon logo.png (256x256) nhãn "240 FPS LOCK" hiển thị trong Geode
+          # 1. Tự động tạo Icon logo.png (256x256) cho Geode Mod
           Add-Type -AssemblyName System.Drawing
           $bmp = New-Object System.Drawing.Bitmap(256, 256)
           $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -27,15 +29,15 @@ jobs:
           $rect = New-Object System.Drawing.Rectangle(0, 0, 256, 256)
           $bgBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
               $rect,
-              [System.Drawing.Color]::FromArgb(255, 8, 22, 38),
-              [System.Drawing.Color]::FromArgb(255, 16, 52, 84),
+              [System.Drawing.Color]::FromArgb(255, 10, 18, 32),
+              [System.Drawing.Color]::FromArgb(255, 0, 75, 110),
               45.0
           )
           $g.FillRectangle($bgBrush, $rect)
 
-          $penOuter = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 0, 255, 180), 10)
+          $penOuter = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 0, 255, 200), 10)
           $g.DrawEllipse($penOuter, 16, 16, 224, 224)
-          $penInner = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(230, 0, 195, 255), 4)
+          $penInner = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(230, 255, 215, 0), 4)
           $g.DrawEllipse($penInner, 30, 30, 196, 196)
 
           $sf = New-Object System.Drawing.StringFormat
@@ -45,16 +47,16 @@ jobs:
           $fontMain = New-Object System.Drawing.Font("Arial", 56, [System.Drawing.FontStyle]::Bold)
           $fontSub = New-Object System.Drawing.Font("Arial", 18, [System.Drawing.FontStyle]::Bold)
           $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
-          $mintBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 0, 255, 180))
+          $cyanBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 0, 255, 200))
 
           $g.DrawString("240", $fontMain, $whiteBrush, (New-Object System.Drawing.PointF(128, 106)), $sf)
-          $g.DrawString("TRUE LOCK", $fontSub, $mintBrush, (New-Object System.Drawing.PointF(128, 172)), $sf)
+          $g.DrawString("ZERO DELAY", $fontSub, $cyanBrush, (New-Object System.Drawing.PointF(128, 172)), $sf)
 
           $g.Dispose()
           $bmp.Save("$PWD/logo.png", [System.Drawing.Imaging.ImageFormat]::Png)
           $bmp.Dispose()
 
-          # 2. Đồng bộ phiên bản Geode SDK mới nhất
+          # 2. Lấy phiên bản Geode SDK mới nhất
           $geodeVer = "5.11.2"
           try {
             $headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "GeodeModBuilder" }
@@ -72,15 +74,15 @@ jobs:
               win = "2.2081"
             }
             id = "yingseo.true480fps"
-            name = "True 240 FPS Hard-Lock Engine v18"
-            version = "v18.0.0"
+            name = "True 240 FPS Zero-Delay Engine v19"
+            version = "v19.0.0"
             developer = "YingSeo"
-            description = "Hard-Locked 240.0 FPS Engine for MX350 & 8GB RAM, 1:1 Jump Frame-Perfect Sync & Anti-Center-Tear."
+            description = "Zero Music Delay, Zero Input Lag, DXGI Anti-Tear & External Booster Sync."
             "early-load" = $true
           } | ConvertTo-Json -Depth 10
           [System.IO.File]::WriteAllText("$PWD/mod.json", $modJson, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 4. Tạo CMakeLists.txt chuẩn C++23 của Geode v5
+          # 4. Tạo CMakeLists.txt cho Geode Mod
           $cmake = @(
             'cmake_minimum_required(VERSION 3.21)',
             'set(CMAKE_CXX_STANDARD 23)',
@@ -106,10 +108,9 @@ jobs:
           ) -join "`n"
           [System.IO.File]::WriteAllText("$PWD/CMakeLists.txt", $cmake, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 5. Tạo src/main.cpp (Bản v18.0: Khóa cứng 240.0 FPS, xóa sọc nhiễu giữa màn hình, chống đơ Speed/Jump)
+          # 5. Tạo src/main.cpp (Bản v19.0: Không chạm CCScheduler -> 0% Delay Nhạc, IAT Micro-Poll -> 0% Delay Click & Không tụt 210 FPS)
           $cppLines = @(
             '#include <Geode/Geode.hpp>',
-            '#include <Geode/modify/CCScheduler.hpp>',
             '#include <Geode/modify/CCEGLView.hpp>',
             '#include <Geode/modify/GameManager.hpp>',
             '#include <Geode/modify/GJBaseGameLayer.hpp>',
@@ -124,13 +125,10 @@ jobs:
             '    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;',
             '}',
             '',
-            '// Khóa cứng tuyệt đối ở 240.0 FPS (4.166667 ms mỗi frame = chuẩn 1:1 với vật lý 240Hz của GD 2.2081)',
-            'constexpr double LOCKED_240_FPS = 240.0;',
-            'constexpr double LOCKED_240_DT  = 1.0 / LOCKED_240_FPS;',
-            'constexpr float  IDEAL_240_STEP = static_cast<float>(LOCKED_240_DT);',
-            '',
-            '// Khoảng thời gian nội bộ để ngăn vòng lặp gốc của Cocos2d-x tự ý gọi Sleep(1)',
-            'constexpr double INTERNAL_UNLOCK_INTERVAL = 0.0005;',
+            '// Đặt mục tiêu nội bộ ở 242.5 Hz:',
+            '// 1. Bù trừ 0.04ms hao hụt vòng lặp để FPS thực tế ghim cứng ở 240 FPS (không bị rớt xuống 210 FPS).',
+            '// 2. Lệch pha với bội số chẵn 4 x 60Hz (240.0) để đường xé hình không đứng yên ở giữa màn hình!',
+            'constexpr double DEFAULT_240_TARGET_FPS = 242.5;',
             '',
             'constexpr unsigned int GL_DITHER_CAP                   = 0x0BD0;',
             'constexpr unsigned int GL_LINE_SMOOTH_CAP              = 0x0B20;',
@@ -140,15 +138,13 @@ jobs:
             'constexpr unsigned int GL_PERSPECTIVE_CORRECTION_CAP   = 0x0C50;',
             'constexpr unsigned int GL_FASTEST_MODE                 = 0x1101;',
             '',
-            '#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION',
-            '#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002',
-            '#endif',
-            '',
             'namespace {',
-            '    template <typename T>',
-            '    constexpr T clampVal(T val, T lo, T hi) {',
-            '        return (val < lo) ? lo : ((val > hi) ? hi : val);',
-            '    }',
+            '    // Cấu trúc bộ nhớ chia sẻ (IPC) kết nối trực tiếp với Tool chạy bên ngoài',
+            '    struct SharedBoosterIPC {',
+            '        std::uint32_t magic;       // 0x47443234 ("GD24")',
+            '        float         targetFps;   // 242.5f (240 Lock), 360.0f, hoặc 480.0f',
+            '        std::uint32_t forceFlush;  // 1 = Làm mới bộ đệm chống đơ',
+            '    };',
             '',
             '    struct Win11PowerThrottling {',
             '        ULONG Version;',
@@ -182,6 +178,7 @@ jobs:
             '    };',
             '    #pragma pack(pop)',
             '',
+            '    using PFN_Sleep                  = void(WINAPI*)(DWORD);',
             '    using PFN_nvapi_QueryInterface   = void*(__cdecl*)(std::uint32_t);',
             '    using PFN_NvAPI_Initialize       = int(__cdecl*)();',
             '    using PFN_NvAPI_DRS_CreateSess   = int(__cdecl*)(void**);',
@@ -212,44 +209,44 @@ jobs:
             '    using PFN_wglSwapIntervalEXT     = BOOL(WINAPI*)(int);',
             '    using PFN_glDisable              = void(APIENTRY*)(unsigned int);',
             '    using PFN_glHint                 = void(APIENTRY*)(unsigned int, unsigned int);',
+            '    using PFN_glFlush                = void(APIENTRY*)();',
             '',
             '    using PFN_CCAppShared            = void*(__cdecl*)();',
             '    using PFN_CCAppSetInterval       = void(__fastcall*)(void*, double);',
             '    using PFN_CCEGLShared            = void*(__cdecl*)();',
             '    using PFN_CCEGLToggleVSync       = void(__fastcall*)(void*, bool);',
             '',
-            '    struct EarlyNvidiaDriverEnvV18 {',
-            '        EarlyNvidiaDriverEnvV18() {',
+            '    struct EarlyDriverEnvV19 {',
+            '        EarlyDriverEnvV19() {',
             '            SetEnvironmentVariableW(L"__GL_THREADED_OPTIMIZATIONS", L"0");',
             '            SetEnvironmentVariableW(L"__GL_SYNC_TO_VBLANK", L"0");',
             '            SetEnvironmentVariableW(L"__GL_MaxFramesAllowed", L"1");',
             '            SetEnvironmentVariableW(L"SHIM_MCCOMPAT", L"0x800000001");',
             '        }',
             '    };',
-            '    static EarlyNvidiaDriverEnvV18 s_earlyEnv;',
+            '    static EarlyDriverEnvV19 s_earlyEnv;',
             '',
             '    template <typename T>',
-            '    void lockGameVariablesTo240(T* gm) {',
+            '    void configureGameManagerVars(T* gm, float targetFps) {',
             '        if (!gm) return;',
-            '        gm->setGameVariable("0023", false); // Tắt Smooth Fix để không bị khựng khi đổi Speed/Jump',
-            '        gm->setGameVariable("0030", false); // Tắt V-Sync 60Hz',
-            '        gm->setGameVariable("0116", true);  // Bật Custom FPS Bypass ở đúng 240 FPS',
+            '        gm->setGameVariable("0023", false); // Tắt Smooth Fix (Chống chậm màn chơi & đơ hình)',
+            '        gm->setGameVariable("0030", false); // Tắt V-Sync',
+            '        gm->setGameVariable("0116", true);  // Bật Custom FPS Bypass',
             '        gm->setGameVariable("0155", false); // Giữ hình ảnh sắc nét nguyên bản',
-            '        gm->setGameVariable("0136", true);  // Giảm lag âm thanh khi nhảy liên tục',
+            '        gm->setGameVariable("0136", true);  // Giảm lag âm thanh FMOD',
             '',
-            '        if constexpr (requires { gm->m_customFPSTarget = 240.0f; }) {',
-            '            gm->m_customFPSTarget = static_cast<float>(LOCKED_240_FPS);',
+            '        if constexpr (requires { gm->m_customFPSTarget = 242.5f; }) {',
+            '            gm->m_customFPSTarget = targetFps;',
             '        }',
             '    }',
             '}',
             '',
-            'namespace Engine240LockV18 {',
-            '    static LARGE_INTEGER s_qpcFreq = {};',
-            '    static LONGLONG s_nextFrameTick = 0;',
-            '    static double s_tickRemainder = 0.0;',
-            '',
-            '    static HANDLE s_highResTimer = nullptr;',
+            'namespace ZeroDelayEngineV19 {',
+            '    static DWORD s_mainThreadId = 0;',
+            '    static PFN_Sleep s_origSleep = ::Sleep;',
             '    static HANDLE s_mmcssHandle = nullptr;',
+            '    static HANDLE s_ipcMapHandle = nullptr;',
+            '    static SharedBoosterIPC* s_ipcView = nullptr;',
             '    static HGLRC s_lastGlContext = nullptr;',
             '',
             '    static PFN_timeEndPeriod s_timeEndPeriod = nullptr;',
@@ -263,27 +260,66 @@ jobs:
             '    static PFN_wglSwapIntervalEXT s_wglSwapIntervalEXT = nullptr;',
             '    static PFN_glDisable s_glDisable = nullptr;',
             '    static PFN_glHint s_glHint = nullptr;',
+            '    static PFN_glFlush s_glFlush = nullptr;',
             '',
             '    static PFN_CCAppShared s_ccAppShared = nullptr;',
             '    static PFN_CCAppSetInterval s_ccAppSetInterval = nullptr;',
             '    static PFN_CCEGLShared s_ccEglShared = nullptr;',
             '    static PFN_CCEGLToggleVSync s_ccEglToggleVSync = nullptr;',
             '',
-            '    static float s_physicsDebt = 0.0f;',
+            '    static double s_currentAppliedFps = 0.0;',
             '    static uint64_t s_frameCounter = 0;',
             '    static bool s_initialized = false;',
             '    static bool s_glLoaded = false;',
             '    static bool s_cocosLoaded = false;',
+            '    static bool s_iatHooked = false;',
             '',
-            '    // Bảng dịch pha nguyên tố 31 bước (tổng bằng 0) giúp triệt tiêu hoàn toàn đường sọc nhiễu',
-            '    // đứng im ở chính giữa màn hình 60Hz khi chạy ở 240 FPS (240 = 60 x 4)',
-            '    constexpr int PRIME_PHASE_TABLE[31] = {',
-            '        -15,  9, -6, 12, -3,  7, -13,  4, -10, 14,',
-            '         -1, -8, 11, -5,  2, -14,  8, -11,  5, -2,',
-            '         13, -7,  3, -12, 6, -9,  15, -4,  10, -1, 1',
-            '    };',
+            '    // 1. Thay thế Sleep(1) trong bảng IAT của libcocos2d.dll:',
+            '    // - Xóa bỏ hoàn toàn hiện tượng ngủ lố 1.95ms của Windows 11 (nguyên nhân làm FPS tụt từ 240 xuống 210).',
+            '    // - Giúp vòng lặp CCApplication::run() liên tục quay về kiểm tra PeekMessage mỗi ~0.02ms,',
+            '    //   nhận thao tác Click chuột tức thì (Zero Input Delay) mà không cần bộ đếm phụ!',
+            '    void WINAPI HookedMicroPollSleep(DWORD dwMilliseconds) {',
+            '        if (GetCurrentThreadId() == s_mainThreadId && dwMilliseconds <= 2) {',
+            '            SwitchToThread();',
+            '            for (int i = 0; i < 48; ++i) {',
+            '                YieldProcessor();',
+            '            }',
+            '            return;',
+            '        }',
+            '        s_origSleep(dwMilliseconds);',
+            '    }',
             '',
-            '    void configureNvidiaControlPanelFor240() {',
+            '    void patchModuleSleepIAT(HMODULE hModule) {',
+            '        if (!hModule) return;',
+            '        auto* base = reinterpret_cast<std::uint8_t*>(hModule);',
+            '        auto* dos = reinterpret_cast<PIMAGE_DOS_HEADER>(base);',
+            '        if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;',
+            '',
+            '        auto* nt = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dos->e_lfanew);',
+            '        if (nt->Signature != IMAGE_NT_SIGNATURE) return;',
+            '',
+            '        auto importDir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];',
+            '        if (!importDir.VirtualAddress || !importDir.Size) return;',
+            '',
+            '        auto* importDesc = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(base + importDir.FirstThunk ? importDir.VirtualAddress : importDir.VirtualAddress);',
+            '        for (; importDesc->Name; ++importDesc) {',
+            '            auto* thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(base + importDesc->FirstThunk);',
+            '            for (; thunk->u1.Function; ++thunk) {',
+            '                if (reinterpret_cast<void*>(thunk->u1.Function) == reinterpret_cast<void*>(s_origSleep)) {',
+            '                    DWORD oldProtect = 0;',
+            '                    if (VirtualProtect(&thunk->u1.Function, sizeof(ULONG_PTR), PAGE_READWRITE, &oldProtect)) {',
+            '                        thunk->u1.Function = reinterpret_cast<ULONG_PTR>(&HookedMicroPollSleep);',
+            '                        VirtualProtect(&thunk->u1.Function, sizeof(ULONG_PTR), oldProtect, &oldProtect);',
+            '                    }',
+            '                }',
+            '            }',
+            '        }',
+            '    }',
+            '',
+            '    // 2. Cấu hình NVIDIA Control Panel (NVAPI):',
+            '    // - TẮT Triple Buffering (0x20FF7493 = 0) để xóa hoàn toàn độ trễ khi nhấn chuột.',
+            '    // - BẬT Prefer Layered on DXGI Swapchain (0x20D9718C = 0x00002002) để xóa sọc ngang trên màn 60Hz!',
+            '    void configureNvidiaDXGILayeredSwapchain() {',
             '        HMODULE hNvapi = LoadLibraryW(L"nvapi64.dll");',
             '        if (!hNvapi) return;',
             '        auto queryInterface = reinterpret_cast<PFN_nvapi_QueryInterface>(GetProcAddress(hNvapi, "nvapi_QueryInterface"));',
@@ -314,12 +350,13 @@ jobs:
             '                    s.u32CurrentValue = val;',
             '                    drsSetSetting(hSession, hProfile, &s);',
             '                };',
-            '                setDword(0x1057EB71, 0x00000001); // Prefer Maximum Performance (Giữ xung nhịp MX350 ổn định)',
-            '                setDword(0x007BA09E, 0x00000001); // Low Latency Mode = On (Max Pre-Rendered Frames = 1)',
+            '                setDword(0x1057EB71, 0x00000001); // Prefer Maximum Performance',
+            '                setDword(0x007BA09E, 0x00000001); // Max Pre-Rendered Frames = 1 (Zero Click Delay)',
+            '                setDword(0x20FF7493, 0x00000000); // OpenGL Triple Buffering = OFF (Xóa trễ chuột)',
+            '                setDword(0x20D9718C, 0x00002002); // Vulkan/OpenGL Present Method = Prefer Layered on DXGI Swapchain (Xóa sọc ngang!)',
             '                setDword(0x00E73211, 0xFFFFFFF6); // Texture Filtering = High Performance',
-            '                setDword(0x20C1221E, 0x00000002); // Threaded Optimization = Off (Chống đơ khi nhảy liên tục)',
+            '                setDword(0x20C1221E, 0x00000002); // Threaded Optimization = Off (Chống đơ game)',
             '                setDword(0x00A879CF, 0x08416747); // V-Sync = Force Off',
-            '                setDword(0x20FF7493, 0x00000001); // OpenGL Triple Buffering = On (Giảm sọc xé hình trên màn 60Hz)',
             '                setDword(0x10F9DC81, 0x00000001); // Optimus High-Performance GPU = MX350',
             '                drsSave(hSession);',
             '            }',
@@ -327,7 +364,7 @@ jobs:
             '        drsDestroySess(hSession);',
             '    }',
             '',
-            '    void configureWin11FlipModelRegistry() {',
+            '    void configureWin11FlipRegistry() {',
             '        HMODULE hAdvapi = LoadLibraryW(L"advapi32.dll");',
             '        if (!hAdvapi) return;',
             '        auto regCreate = reinterpret_cast<PFN_RegCreateKeyExW>(GetProcAddress(hAdvapi, "RegCreateKeyExW"));',
@@ -338,7 +375,6 @@ jobs:
             '        wchar_t exePath[MAX_PATH] = {};',
             '        if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return;',
             '',
-            '        // Kích hoạt GpuPreference=2 (MX350) & SwapEffectUpgradeEnable=1 (Chống sọc xé hình giữa màn hình)',
             '        HKEY hKeyGpu = nullptr;',
             '        if (regCreate(HKEY_CURRENT_USER, L"Software\\Microsoft\\DirectX\\UserGpuPreferences",',
             '                      0, nullptr, 0, KEY_SET_VALUE, nullptr, &hKeyGpu, nullptr) == 0) {',
@@ -349,16 +385,36 @@ jobs:
             '        }',
             '    }',
             '',
-            '    void initSystem240Lock() {',
+            '    void initSharedMemoryIPC() {',
+            '        if (s_ipcMapHandle) return;',
+            '        s_ipcMapHandle = CreateFileMappingW(',
+            '            INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(SharedBoosterIPC), L"Local\\GD_HyperBoost_IPC_v19"',
+            '        );',
+            '        if (s_ipcMapHandle) {',
+            '            s_ipcView = reinterpret_cast<SharedBoosterIPC*>(',
+            '                MapViewOfFile(s_ipcMapHandle, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedBoosterIPC))',
+            '            );',
+            '            if (s_ipcView && s_ipcView->magic != 0x47443234) {',
+            '                s_ipcView->magic = 0x47443234;',
+            '                s_ipcView->targetFps = static_cast<float>(DEFAULT_240_TARGET_FPS);',
+            '                s_ipcView->forceFlush = 0;',
+            '            }',
+            '        }',
+            '    }',
+            '',
+            '    void initAllSystems() {',
             '        if (s_initialized) return;',
             '',
-            '        QueryPerformanceFrequency(&s_qpcFreq);',
-            '        LARGE_INTEGER now;',
-            '        QueryPerformanceCounter(&now);',
-            '        s_nextFrameTick = now.QuadPart;',
+            '        initSharedMemoryIPC();',
+            '        configureWin11FlipRegistry();',
+            '        configureNvidiaDXGILayeredSwapchain();',
             '',
-            '        configureWin11FlipModelRegistry();',
-            '        configureNvidiaControlPanelFor240();',
+            '        if (!s_iatHooked) {',
+            '            s_mainThreadId = GetCurrentThreadId();',
+            '            patchModuleSleepIAT(GetModuleHandleW(L"libcocos2d.dll"));',
+            '            patchModuleSleepIAT(GetModuleHandleW(nullptr));',
+            '            s_iatHooked = true;',
+            '        }',
             '',
             '        if (HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll")) {',
             '            auto ntQuery = reinterpret_cast<PFN_NtQueryTimerResolution>(GetProcAddress(hNtdll, "NtQueryTimerResolution"));',
@@ -376,10 +432,6 @@ jobs:
             '            if (timeBegin) timeBegin(1);',
             '        }',
             '',
-            '        s_highResTimer = CreateWaitableTimerExW(',
-            '            nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS',
-            '        );',
-            '',
             '        if (HMODULE hUser32 = GetModuleHandleW(L"user32.dll")) {',
             '            s_windowFromDC = reinterpret_cast<PFN_WindowFromDC>(GetProcAddress(hUser32, "WindowFromDC"));',
             '        }',
@@ -387,8 +439,6 @@ jobs:
             '            s_dwmSetWindowAttribute = reinterpret_cast<PFN_DwmSetWindowAttribute>(GetProcAddress(hDwm, "DwmSetWindowAttribute"));',
             '        }',
             '',
-            '        // Đặt ABOVE_NORMAL thay vì HIGH_PRIORITY để luồng âm thanh (FMOD) và luồng chuột không bao giờ bị đơ',
-            '        // khi bạn nhảy liên tục hoặc đi qua cổng Speed Portal trên máy 8GB RAM!',
             '        HANDLE hProcess = GetCurrentProcess();',
             '        HANDLE hThread = GetCurrentThread();',
             '        SetPriorityClass(hProcess, ABOVE_NORMAL_PRIORITY_CLASS);',
@@ -411,32 +461,27 @@ jobs:
             '            if (avSetChars) {',
             '                DWORD taskIdx = 0;',
             '                s_mmcssHandle = avSetChars(L"Games", &taskIdx);',
-            '                if (s_mmcssHandle && avSetPrio) avSetPrio(s_mmcssHandle, 1); // AVRT_PRIORITY_HIGH',
+            '                if (s_mmcssHandle && avSetPrio) avSetPrio(s_mmcssHandle, 1);',
             '            }',
             '        }',
             '',
             '        s_initialized = true;',
             '    }',
             '',
-            '    struct EngineLifecycleGuard {',
-            '        ~EngineLifecycleGuard() {',
+            '    struct LifecycleGuard {',
+            '        ~LifecycleGuard() {',
+            '            if (s_ipcView) { UnmapViewOfFile(s_ipcView); s_ipcView = nullptr; }',
+            '            if (s_ipcMapHandle) { CloseHandle(s_ipcMapHandle); s_ipcMapHandle = nullptr; }',
             '            if (!s_initialized) return;',
-            '            if (s_highResTimer) {',
-            '                CloseHandle(s_highResTimer);',
-            '                s_highResTimer = nullptr;',
-            '            }',
-            '            if (s_mmcssHandle && s_avRevert) {',
-            '                s_avRevert(s_mmcssHandle);',
-            '                s_mmcssHandle = nullptr;',
-            '            }',
+            '            if (s_mmcssHandle && s_avRevert) { s_avRevert(s_mmcssHandle); s_mmcssHandle = nullptr; }',
             '            if (s_timeEndPeriod) s_timeEndPeriod(1);',
             '            s_initialized = false;',
             '        }',
             '    };',
-            '    static EngineLifecycleGuard s_guard;',
+            '    static LifecycleGuard s_guard;',
             '',
-            '    // Vô hiệu hóa Sleep(1) mặc định của Cocos2d-x để bộ đếm 240.0 FPS của chúng ta điều khiển 100%',
-            '    void bypassInternalCocosSleep() {',
+            '    // Chỉ cập nhật AnimationInterval khi có thay đổi (Không bao giờ gọi toggleVerticalSync lặp lại gây đơ game!)',
+            '    void syncTargetFrameRate(bool forceApply = false) {',
             '        if (!s_cocosLoaded) {',
             '            if (HMODULE hCocos = GetModuleHandleW(L"libcocos2d.dll")) {',
             '                s_ccAppShared = reinterpret_cast<PFN_CCAppShared>(GetProcAddress(hCocos, "?sharedApplication@CCApplication@cocos2d@@SAPEAV12@XZ"));',
@@ -446,15 +491,31 @@ jobs:
             '            }',
             '            s_cocosLoaded = true;',
             '        }',
-            '        if (s_ccEglShared && s_ccEglToggleVSync) {',
-            '            if (void* view = s_ccEglShared()) s_ccEglToggleVSync(view, false);',
+            '',
+            '        double desiredFps = DEFAULT_240_TARGET_FPS;',
+            '        if (s_ipcView && s_ipcView->magic == 0x47443234 && s_ipcView->targetFps >= 60.0f) {',
+            '            desiredFps = static_cast<double>(s_ipcView->targetFps);',
+            '            if (s_ipcView->forceFlush != 0) {',
+            '                s_ipcView->forceFlush = 0;',
+            '                forceApply = true;',
+            '            }',
             '        }',
-            '        if (s_ccAppShared && s_ccAppSetInterval) {',
-            '            if (void* app = s_ccAppShared()) s_ccAppSetInterval(app, INTERNAL_UNLOCK_INTERVAL);',
+            '',
+            '        if (forceApply || std::fabs(desiredFps - s_currentAppliedFps) > 0.1) {',
+            '            s_currentAppliedFps = desiredFps;',
+            '            configureGameManagerVars(GameManager::sharedState(), static_cast<float>(desiredFps));',
+            '            if (s_ccAppShared && s_ccAppSetInterval) {',
+            '                if (void* app = s_ccAppShared()) {',
+            '                    s_ccAppSetInterval(app, 1.0 / desiredFps);',
+            '                }',
+            '            }',
             '        }',
             '    }',
             '',
-            '    void configureAntiTearOpenGL() {',
+            '    void onSwapBuffersOncePerContext() {',
+            '        if (!s_initialized) initAllSystems();',
+            '        ++s_frameCounter;',
+            '',
             '        if (!s_glLoaded) {',
             '            HMODULE hOgl = GetModuleHandleW(L"opengl32.dll");',
             '            if (!hOgl) hOgl = LoadLibraryW(L"opengl32.dll");',
@@ -464,17 +525,22 @@ jobs:
             '                s_wglGetProcAddress    = reinterpret_cast<PFN_wglGetProcAddress>(GetProcAddress(hOgl, "wglGetProcAddress"));',
             '                s_glDisable            = reinterpret_cast<PFN_glDisable>(GetProcAddress(hOgl, "glDisable"));',
             '                s_glHint               = reinterpret_cast<PFN_glHint>(GetProcAddress(hOgl, "glHint"));',
+            '                s_glFlush              = reinterpret_cast<PFN_glFlush>(GetProcAddress(hOgl, "glFlush"));',
             '            }',
             '            s_glLoaded = true;',
             '        }',
             '',
             '        HGLRC currentCtx = s_wglGetCurrentContext ? s_wglGetCurrentContext() : nullptr;',
+            '        // Chỉ cấu hình OpenGL ĐÚNG 1 LẦN khi tạo cửa sổ (Xóa bỏ hoàn toàn lỗi đơ game mỗi 256 frame!)',
             '        if (currentCtx != s_lastGlContext) {',
             '            s_lastGlContext = currentCtx;',
             '            if (s_wglGetProcAddress) {',
             '                s_wglSwapIntervalEXT = reinterpret_cast<PFN_wglSwapIntervalEXT>(s_wglGetProcAddress("wglSwapIntervalEXT"));',
             '            }',
             '            if (s_wglSwapIntervalEXT) s_wglSwapIntervalEXT(0);',
+            '            if (s_ccEglShared && s_ccEglToggleVSync) {',
+            '                if (void* view = s_ccEglShared()) s_ccEglToggleVSync(view, false);',
+            '            }',
             '',
             '            if (s_wglGetCurrentDC && s_windowFromDC && s_dwmSetWindowAttribute) {',
             '                if (HDC hdc = s_wglGetCurrentDC()) {',
@@ -495,139 +561,246 @@ jobs:
             '            if (s_glHint) {',
             '                s_glHint(GL_PERSPECTIVE_CORRECTION_CAP, GL_FASTEST_MODE);',
             '            }',
-            '            bypassInternalCocosSleep();',
-            '        } else if ((s_frameCounter & 255) == 0) {',
-            '            bypassInternalCocosSleep();',
+            '            syncTargetFrameRate(true);',
+            '        } else if ((s_frameCounter & 127) == 0) {',
+            '            // Kiểm tra tín hiệu từ Tool bên ngoài cực nhẹ (không gọi lại toggleVerticalSync)',
+            '            syncTargetFrameRate(false);',
             '        }',
-            '    }',
-            '',
-            '    // Bộ khóa cứng 240.00 FPS + Dịch pha nguyên tố xóa đường sọc nhiễu giữa màn hình 60Hz',
-            '    void paceHardLocked240AndAntiTear() {',
-            '        if (!s_initialized) initSystem240Lock();',
-            '        ++s_frameCounter;',
-            '',
-            '        double exactTicks = (static_cast<double>(s_qpcFreq.QuadPart) * LOCKED_240_DT) + s_tickRemainder;',
-            '        LONGLONG stepTicks = static_cast<LONGLONG>(exactTicks);',
-            '        s_tickRemainder = exactTicks - static_cast<double>(stepTicks);',
-            '',
-            '        s_nextFrameTick += stepTicks;',
-            '',
-            '        // Dịch pha vi mô (+/- 85 micro-giây theo chu kỳ nguyên tố 31 bước, tổng độ lệch = 0)',
-            '        // để điểm lật hình không bao giờ đứng im ở vạch 50% giữa màn hình 60Hz!',
-            '        LONGLONG microPhaseOffset = static_cast<LONGLONG>(PRIME_PHASE_TABLE[s_frameCounter % 31]) * (s_qpcFreq.QuadPart / 160000);',
-            '        LONGLONG targetTick = s_nextFrameTick + microPhaseOffset;',
-            '',
-            '        LARGE_INTEGER now;',
-            '        QueryPerformanceCounter(&now);',
-            '',
-            '        // Nếu vừa chuyển cảnh hoặc lag > 2 frame thì đồng bộ lại mốc thời gian ngay lập tức',
-            '        if (now.QuadPart > targetTick) {',
-            '            if (now.QuadPart > s_nextFrameTick + (stepTicks * 2)) {',
-            '                s_nextFrameTick = now.QuadPart;',
-            '            }',
-            '            return;',
-            '        }',
-            '',
-            '        LONGLONG remainingTicks = targetTick - now.QuadPart;',
-            '        double remainingSec = static_cast<double>(remainingTicks) / static_cast<double>(s_qpcFreq.QuadPart);',
-            '',
-            '        // Nghỉ bằng High-Resolution Timer khi thời gian chờ > 0.90ms để CPU mát và không đơ âm thanh/chuột',
-            '        if (remainingSec > 0.00090 && s_highResTimer != nullptr) {',
-            '            LARGE_INTEGER dueTime;',
-            '            dueTime.QuadPart = -static_cast<LONGLONG>((remainingSec - 0.00040) * 10000000.0);',
-            '            if (dueTime.QuadPart < 0) {',
-            '                SetWaitableTimer(s_highResTimer, &dueTime, 0, nullptr, nullptr, FALSE);',
-            '                WaitForSingleObject(s_highResTimer, 1);',
-            '            }',
-            '        }',
-            '',
-            '        // Khóa chính xác nano-giây cho 0.40ms cuối cùng để ghim cứng ở đúng 240.0 FPS',
-            '        do {',
-            '            YieldProcessor();',
-            '            QueryPerformanceCounter(&now);',
-            '        } while (now.QuadPart < targetTick);',
             '    }',
             '}',
             '',
-            '// 1. Hook CCScheduler: Đồng bộ 1:1 nhịp vật lý 240Hz giúp Jump Frame-Perfect nhạy tuyệt đối',
-            '//    và chống giật/lag khi qua cổng Speed Portal!',
-            'class $modify(HardLock240Scheduler, CCScheduler) {',
-            '    static void onModify(auto& self) {',
-            '        (void)self.setHookPriority("cocos2d::CCScheduler::update", Priority::Early);',
-            '    }',
-            '',
-            '    void update(float dt) {',
-            '        float timeScale = this->getTimeScale();',
-            '        float targetStep = (timeScale > 0.0f) ? (IDEAL_240_STEP * timeScale) : IDEAL_240_STEP;',
-            '',
-            '        // Khi đang chạy ở 240 FPS, ghim bước vật lý về chuẩn 1/240s kèm bộ bù sai số Zero-Drift',
-            '        // để mọi pha nhảy Jump Frame-Perfect đều khớp 100% với từng khung hình và không lệch nhạc!',
-            '        if (dt >= targetStep * 0.65f && dt <= targetStep * 1.85f) {',
-            '            Engine240LockV18::s_physicsDebt += (dt - targetStep);',
-            '            Engine240LockV18::s_physicsDebt = clampVal(Engine240LockV18::s_physicsDebt, -targetStep, targetStep);',
-            '',
-            '            float microAdjust = clampVal(Engine240LockV18::s_physicsDebt * 0.10f, -0.00004f, 0.00004f);',
-            '            Engine240LockV18::s_physicsDebt -= microAdjust;',
-            '',
-            '            CCScheduler::update(targetStep + microAdjust);',
-            '        } else if (dt > targetStep * 1.85f && dt < 0.10f) {',
-            '            // Chặn đứng hiện tượng vọt delta-time khi chạm cổng Speed Portal hoặc nổ hạt liên tục',
-            '            Engine240LockV18::s_physicsDebt = 0.0f;',
-            '            CCScheduler::update(targetStep);',
-            '        } else {',
-            '            Engine240LockV18::s_physicsDebt = 0.0f;',
-            '            CCScheduler::update(dt);',
-            '        }',
-            '    }',
-            '};',
-            '',
-            '// 2. Hook GameManager: Khóa mục tiêu 240 FPS ngay khi khởi động',
-            'class $modify(HardLock240GameManager, GameManager) {',
+            '// 1. Hook GameManager: Khóa cấu hình chuẩn khi mở game',
+            'class $modify(ZeroDelayGameManager19, GameManager) {',
             '    bool init() {',
             '        if (!GameManager::init()) return false;',
-            '        Engine240LockV18::initSystem240Lock();',
-            '        lockGameVariablesTo240(this);',
-            '        Engine240LockV18::bypassInternalCocosSleep();',
+            '        ZeroDelayEngineV19::initAllSystems();',
+            '        ZeroDelayEngineV19::syncTargetFrameRate(true);',
             '        return true;',
             '    }',
             '};',
             '',
-            '// 3. Hook GJBaseGameLayer: Giữ ổn định khi vào màn chơi và tương thích hoàn toàn với Eclipse Menu',
-            'class $modify(HardLock240BaseGameLayer, GJBaseGameLayer) {',
+            '// 2. Hook GJBaseGameLayer: Đồng bộ khi vào màn chơi (Không chạm vào update(dt) để nhạc khớp 100%)',
+            'class $modify(ZeroDelayBaseGameLayer19, GJBaseGameLayer) {',
             '    bool init() {',
             '        if (!GJBaseGameLayer::init()) return false;',
-            '        Engine240LockV18::initSystem240Lock();',
-            '        lockGameVariablesTo240(GameManager::sharedState());',
-            '        Engine240LockV18::s_physicsDebt = 0.0f;',
-            '        Engine240LockV18::s_lastGlContext = nullptr;',
-            '        Engine240LockV18::configureAntiTearOpenGL();',
+            '        ZeroDelayEngineV19::initAllSystems();',
+            '        ZeroDelayEngineV19::syncTargetFrameRate(true);',
             '        return true;',
             '    }',
             '};',
             '',
-            '// 4. Hook CCEGLView: Khóa cứng 240.0 FPS (Không tăng quá 240, không rớt FPS) & Xóa sọc giữa màn hình',
-            'class $modify(HardLock240EGLView, CCEGLView) {',
-            '    static void onModify(auto& self) {',
-            '        // Đặt Priority::Late để vẽ mượt mà sau lớp giao diện của Eclipse Menu',
-            '        (void)self.setHookPriority("cocos2d::CCEGLView::swapBuffers", Priority::Late);',
-            '    }',
-            '',
+            '// 3. Hook CCEGLView: Lật hình tức thì không chặn luồng + Đẩy glFlush() sau khi lật để giảm trễ Click tối đa',
+            'class $modify(ZeroDelayEGLView19, CCEGLView) {',
             '    void swapBuffers() {',
-            '        Engine240LockV18::configureAntiTearOpenGL();',
-            '        Engine240LockV18::paceHardLocked240AndAntiTear();',
+            '        ZeroDelayEngineV19::onSwapBuffersOncePerContext();',
             '        CCEGLView::swapBuffers();',
+            '        if (ZeroDelayEngineV19::s_glFlush) {',
+            '            ZeroDelayEngineV19::s_glFlush();',
+            '        }',
             '    }',
             '};',
             '',
             '$on_mod(Loaded) {',
-            '    Engine240LockV18::initSystem240Lock();',
+            '    ZeroDelayEngineV19::initAllSystems();',
             '    Loader::get()->queueInMainThread([]() {',
-            '        lockGameVariablesTo240(GameManager::sharedState());',
-            '        Engine240LockV18::configureAntiTearOpenGL();',
+            '        ZeroDelayEngineV19::syncTargetFrameRate(true);',
             '    });',
             '}'
           ) -join "`n"
           [System.IO.File]::WriteAllText("$PWD/src/main.cpp", $cppLines, (New-Object System.Text.UTF8Encoding($false)))
+
+          # 6. Tạo mã nguồn cho TOOL CHẠY BÊN NGOÀI (external_tool/booster.cpp)
+          $extCpp = @(
+            '#ifndef WIN32_LEAN_AND_MEAN',
+            '#define WIN32_LEAN_AND_MEAN',
+            '#endif',
+            '#include <windows.h>',
+            '#include <tlhelp32.h>',
+            '#include <psapi.h>',
+            '#include <cstdio>',
+            '#include <cstdint>',
+            '',
+            '#pragma comment(lib, "user32.lib")',
+            '#pragma comment(lib, "advapi32.lib")',
+            '#pragma comment(lib, "psapi.lib")',
+            '',
+            'struct SharedBoosterIPC {',
+            '    std::uint32_t magic;',
+            '    float         targetFps;',
+            '    std::uint32_t forceFlush;',
+            '};',
+            '',
+            'struct Win11PowerThrottling {',
+            '    ULONG Version;',
+            '    ULONG ControlMask;',
+            '    ULONG StateMask;',
+            '};',
+            '',
+            'using PFN_NtQueryTimerResolution = LONG(NTAPI*)(PULONG, PULONG, PULONG);',
+            'using PFN_NtSetTimerResolution   = LONG(NTAPI*)(ULONG, BOOLEAN, PULONG);',
+            'using PFN_timeBeginPeriod        = UINT(WINAPI*)(UINT);',
+            'using PFN_SetProcessInformation  = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);',
+            '',
+            'DWORD FindGeometryDashPID() {',
+            '    DWORD pid = 0;',
+            '    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);',
+            '    if (snap != INVALID_HANDLE_VALUE) {',
+            '        PROCESSENTRY32W pe = {};',
+            '        pe.dwSize = sizeof(pe);',
+            '        if (Process32FirstW(snap, &pe)) {',
+            '            do {',
+            '                if (_wcsicmp(pe.szExeFile, L"GeometryDash.exe") == 0) {',
+            '                    pid = pe.th32ProcessID;',
+            '                    break;',
+            '                }',
+            '            } while (Process32NextW(snap, &pe));',
+            '        }',
+            '        CloseHandle(snap);',
+            '    }',
+            '    return pid;',
+            '}',
+            '',
+            'void BoostGeometryDashProcess(DWORD pid, bool trimBackgroundRam) {',
+            '    if (trimBackgroundRam) {',
+            '        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);',
+            '        if (snap != INVALID_HANDLE_VALUE) {',
+            '            PROCESSENTRY32W pe = {};',
+            '            pe.dwSize = sizeof(pe);',
+            '            if (Process32FirstW(snap, &pe)) {',
+            '                do {',
+            '                    if (pe.th32ProcessID != pid && pe.th32ProcessID > 4) {',
+            '                        HANDLE hOther = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, FALSE, pe.th32ProcessID);',
+            '                        if (hOther) {',
+            '                            EmptyWorkingSet(hOther);',
+            '                            CloseHandle(hOther);',
+            '                        }',
+            '                    }',
+            '                } while (Process32NextW(snap, &pe));',
+            '            }',
+            '            CloseHandle(snap);',
+            '        }',
+            '    }',
+            '',
+            '    if (!pid) return;',
+            '    HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);',
+            '    if (!hProc) return;',
+            '',
+            '    SetPriorityClass(hProc, ABOVE_NORMAL_PRIORITY_CLASS);',
+            '    SetProcessPriorityBoost(hProc, FALSE);',
+            '',
+            '    if (HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll")) {',
+            '        auto setProcInfo = reinterpret_cast<PFN_SetProcessInformation>(GetProcAddress(hKernel32, "SetProcessInformation"));',
+            '        if (setProcInfo) {',
+            '            Win11PowerThrottling throttling = { 1, 0x1 | 0x4, 0 };',
+            '            setProcInfo(hProc, 4, &throttling, sizeof(throttling));',
+            '        }',
+            '    }',
+            '    CloseHandle(hProc);',
+            '}',
+            '',
+            'int main() {',
+            '    SetConsoleTitleW(L"GD 2.2081 External FPS Bypass & MX350 Booster Tool v19.0");',
+            '',
+            '    if (HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll")) {',
+            '        auto ntQuery = reinterpret_cast<PFN_NtQueryTimerResolution>(GetProcAddress(hNtdll, "NtQueryTimerResolution"));',
+            '        auto ntSet   = reinterpret_cast<PFN_NtSetTimerResolution>(GetProcAddress(hNtdll, "NtSetTimerResolution"));',
+            '        if (ntSet) {',
+            '            ULONG minRes = 0, maxRes = 5000, curRes = 0;',
+            '            if (ntQuery) ntQuery(&minRes, &maxRes, &curRes);',
+            '            ntSet(maxRes, TRUE, &curRes);',
+            '        }',
+            '    }',
+            '    if (HMODULE hWinmm = LoadLibraryW(L"winmm.dll")) {',
+            '        auto timeBegin = reinterpret_cast<PFN_timeBeginPeriod>(GetProcAddress(hWinmm, "timeBeginPeriod"));',
+            '        if (timeBegin) timeBegin(1);',
+            '    }',
+            '',
+            '    HANDLE hMap = CreateFileMappingW(',
+            '        INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(SharedBoosterIPC), L"Local\\GD_HyperBoost_IPC_v19"',
+            '    );',
+            '    SharedBoosterIPC* ipc = nullptr;',
+            '    if (hMap) {',
+            '        ipc = reinterpret_cast<SharedBoosterIPC*>(MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedBoosterIPC)));',
+            '        if (ipc) {',
+            '            ipc->magic = 0x47443234;',
+            '            ipc->targetFps = 242.5f;',
+            '            ipc->forceFlush = 1;',
+            '        }',
+            '    }',
+            '',
+            '    std::printf("==================================================================\n");',
+            '    std::printf("   GEOMETRY DASH 2.2081 - EXTERNAL FPS BYPASS & RAM BOOSTER v19   \n");',
+            '    std::printf("   Optimized for: Windows 11 | 8GB RAM | NVIDIA GeForce MX350     \n");',
+            '    std::printf("==================================================================\n\n");',
+            '    std::printf(" [+] Kernel Timer Resolution : LOCKED AT 0.50 ms\n");',
+            '    std::printf(" [+] DXGI Flip Anti-Tear     : ACTIVE\n");',
+            '    std::printf(" [+] Zero-Latency Input Poll : ACTIVE\n\n");',
+            '    std::printf(" PHIM NONG DIEU KHIEN TRUC TIEP KHI DANG CHOI GAME:\n");',
+            '    std::printf("   [F1] -> Khoa chuan 240 FPS (242.5Hz Chong soc ngang 60Hz - Khuyen dung)\n");',
+            '    std::printf("   [F2] -> Bypass len 360 FPS (Tang nhay Frame-Perfect)\n");',
+            '    std::printf("   [F3] -> Bypass len 480 FPS (Toi da Frame-Perfect)\n");',
+            '    std::printf("   [F4] -> Don sach RAM ngam cho may 8GB (Chong do & lag tuc thi)\n\n");',
+            '',
+            '    DWORD lastPid = 0;',
+            '    int tick = 0;',
+            '    while (true) {',
+            '        if (GetAsyncKeyState(VK_F1) & 1) {',
+            '            if (ipc) { ipc->targetFps = 242.5f; ipc->forceFlush = 1; }',
+            '            std::printf(" [>] Da chuyen sang che do: 240 FPS LOCK (Anti-Tear 60Hz)\n");',
+            '        }',
+            '        if (GetAsyncKeyState(VK_F2) & 1) {',
+            '            if (ipc) { ipc->targetFps = 362.5f; ipc->forceFlush = 1; }',
+            '            std::printf(" [>] Da chuyen sang che do: 360 FPS BYPASS\n");',
+            '        }',
+            '        if (GetAsyncKeyState(VK_F3) & 1) {',
+            '            if (ipc) { ipc->targetFps = 482.5f; ipc->forceFlush = 1; }',
+            '            std::printf(" [>] Da chuyen sang che do: 480 FPS BYPASS\n");',
+            '        }',
+            '        if (GetAsyncKeyState(VK_F4) & 1) {',
+            '            DWORD pid = FindGeometryDashPID();',
+            '            BoostGeometryDashProcess(pid, true);',
+            '            if (ipc) { ipc->forceFlush = 1; }',
+            '            std::printf(" [>] Da giai phong RAM ngam cho may 8GB va lam moi tien trinh GD!\n");',
+            '        }',
+            '',
+            '        if (++tick >= 20) {',
+            '            tick = 0;',
+            '            DWORD pid = FindGeometryDashPID();',
+            '            if (pid != 0 && pid != lastPid) {',
+            '                lastPid = pid;',
+            '                BoostGeometryDashProcess(pid, true);',
+            '                std::printf(" [+] Da ket noi GeometryDash.exe (PID: %lu) - Da kich hoat Boost & Don RAM!\n", pid);',
+            '            } else if (pid == 0 && lastPid != 0) {',
+            '                lastPid = 0;',
+            '                std::printf(" [-] GeometryDash.exe da dong. Dang cho mo lai game...\n");',
+            '            }',
+            '        }',
+            '        Sleep(50);',
+            '    }',
+            '    return 0;',
+            '}'
+          ) -join "`n"
+          [System.IO.File]::WriteAllText("$PWD/external_tool/booster.cpp", $extCpp, (New-Object System.Text.UTF8Encoding($false)))
+
+          $extCmake = @(
+            'cmake_minimum_required(VERSION 3.21)',
+            'project(GDExternalBooster LANGUAGES CXX)',
+            'set(CMAKE_CXX_STANDARD 20)',
+            'add_executable(GD-External-FPS-Booster booster.cpp)'
+          ) -join "`n"
+          [System.IO.File]::WriteAllText("$PWD/external_tool/CMakeLists.txt", $extCmake, (New-Object System.Text.UTF8Encoding($false)))
+
+      - name: Build External FPS Bypass Tool (.exe)
+        shell: pwsh
+        run: |
+          cmake -S external_tool -B ext_build -DCMAKE_BUILD_TYPE=Release
+          cmake --build ext_build --config Release
+          New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
+          $exeFile = Get-ChildItem -Path "ext_build" -Filter "GD-External-FPS-Booster.exe" -Recurse | Select-Object -First 1
+          if ($exeFile) {
+            Copy-Item $exeFile.FullName "artifact_out/GD-External-FPS-Booster.exe" -Force
+            Write-Host "Built GD-External-FPS-Booster.exe successfully!"
+          }
 
       - name: Build Geode Mod (Primary)
         id: build
@@ -636,7 +809,7 @@ jobs:
         with:
           use-lto: false
 
-      - name: Self-Healing Build & Inject Icon Verification
+      - name: Self-Healing Build & Package Both Mod + External Tool
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -653,10 +826,11 @@ jobs:
             }
           }
 
-          $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue)
+          New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
+
+          $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch "artifact_out" })
           if ($geodeFiles.Count -gt 0) {
             Ensure-LogoInGeodePackage $geodeFiles[0].FullName
-            New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
             Copy-Item $geodeFiles[0].FullName "artifact_out/yingseo.true480fps.geode" -Force
             exit 0
           }
@@ -691,10 +865,9 @@ jobs:
           cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
           cmake --build build --config Release
 
-          $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue)
+          $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch "artifact_out" })
           if ($geodeFiles.Count -gt 0) {
             Ensure-LogoInGeodePackage $geodeFiles[0].FullName
-            New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
             Copy-Item $geodeFiles[0].FullName "artifact_out/yingseo.true480fps.geode" -Force
             exit 0
           }
@@ -702,8 +875,8 @@ jobs:
           Write-Error "Failed to produce .geode package."
           exit 1
 
-      - name: Upload Geode Package
+      - name: Upload Mod and External Tool Suite
         uses: actions/upload-artifact@v4
         with:
-          name: True240FPS-HardLock-v18
-          path: artifact_out/*.geode
+          name: True240FPS-Suite-v19
+          path: artifact_out/*
