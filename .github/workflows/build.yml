@@ -8,7 +8,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Auto-Configure Geode Project
+      - name: Sync mod.json and Project Structure for Geode v5
         shell: pwsh
         run: |
           if (!(Test-Path "src")) {
@@ -18,36 +18,37 @@ jobs:
             Copy-Item "main.cpp" "src/main.cpp" -Force
           }
 
-          $geodeVer = "4.4.0"
+          $latestGeode = "5.11.2"
           try {
             $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/geode-sdk/geode/releases/latest" -TimeoutSec 15
             if ($rel.tag_name) {
-              $geodeVer = $rel.tag_name -replace '^v',''
+              $latestGeode = $rel.tag_name -replace '^v',''
             }
           } catch {
-            Write-Host "Fallback Geode version: $geodeVer"
+            Write-Host "Using Geode v5 version: $latestGeode"
           }
 
           $modJson = [ordered]@{
-            geode = $geodeVer
+            geode = $latestGeode
             gd = @{
               win = "2.2081"
             }
-            id = "yingseo.true480fps.unlocker"
-            name = "True 480+ FPS Overdrive Engine"
-            version = "v7.0.0"
+            id = "yingseo.true480fps"
+            name = "True 480+ FPS Overdrive"
+            version = "v8.0.0"
             developer = "YingSeo"
-            description = "True 480+ FPS Unlocker, Frame-Perfect Bypass, Anti-Blur/MSAA & Win11 0.5ms Kernel Boost."
+            description = "True 480+ FPS Unlocker, Frame-Perfect Bypass, Anti-Blur/MSAA and Win11 0.5ms Kernel Boost."
             "early-load" = $true
           } | ConvertTo-Json -Depth 10
           [System.IO.File]::WriteAllText("$PWD/mod.json", $modJson, (New-Object System.Text.UTF8Encoding($false)))
 
           $cmake = @(
             'cmake_minimum_required(VERSION 3.21)',
-            'set(CMAKE_CXX_STANDARD 20)',
+            'set(CMAKE_CXX_STANDARD 23)',
             'set(CMAKE_CXX_STANDARD_REQUIRED ON)',
+            'set(CMAKE_CXX_EXTENSIONS OFF)',
             'set(CMAKE_CXX_VISIBILITY_PRESET hidden)',
-            'project(True480FPSMod VERSION 7.0.0)',
+            'project(True480FPSMod VERSION 8.0.0 LANGUAGES C CXX)',
             'add_library(${PROJECT_NAME} SHARED src/main.cpp)',
             'if (NOT DEFINED ENV{GEODE_SDK})',
             '    message(FATAL_ERROR "Unable to find Geode SDK!")',
@@ -63,13 +64,9 @@ jobs:
       - name: Build Geode Mod
         id: build
         uses: geode-sdk/build-geode-mod@main
-        with:
-          combine: true
 
       - name: Upload Geode Package
         uses: actions/upload-artifact@v4
         with:
-          name: True480FPS-Overdrive-v7
-          path: |
-            ${{ steps.build.outputs.build-output }}
-            **/*.geode
+          name: True480FPS-Overdrive-v8
+          path: ${{ steps.build.outputs.build-output }}
