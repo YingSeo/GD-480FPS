@@ -14,19 +14,16 @@
 #include <cmath>
 #include <cstdint>
 
-#pragma comment(lib, "user32.lib")
-#pragma comment(lib, "gdi32.lib")
-
 using namespace geode::prelude;
 
-// Mức sàn tối thiểu: 480 FPS thật (2.083333 ms mỗi frame)
+// Mức sàn tối thiểu: 480 FPS thật (2.083333 ms mỗi frame, không giới hạn trần)
 constexpr double FLOOR_FPS = 480.0;
 constexpr double FLOOR_FRAME_TIME = 1.0 / FLOOR_FPS;
 
-// Xung nhịp nội bộ siêu nhỏ để vô hiệu hóa hàm Sleep(1) gây drop FPS của Cocos2d-x
+// Xung nhịp nội bộ siêu nhỏ giúp vô hiệu hóa hàm Sleep(1) gây tụt FPS của Cocos2d-x
 constexpr double INTERNAL_BYPASS_INTERVAL = 0.0001;
 
-// Hằng số OpenGL chuẩn phần cứng để khử răng cưa và chống nhòe hình
+// Hằng số phần cứng OpenGL để khử răng cưa MSAA và chống nhòe hình
 constexpr unsigned int GL_LINE_SMOOTH_CAP                = 0x0B20;
 constexpr unsigned int GL_POLYGON_SMOOTH_CAP             = 0x0B41;
 constexpr unsigned int GL_PERSPECTIVE_CORRECTION_CAP     = 0x0C50;
@@ -63,7 +60,7 @@ namespace {
     using PFN_glFlush                = void(APIENTRY*)();
 }
 
-namespace OverdriveEngineV7 {
+namespace OverdriveEngineV8 {
     static LARGE_INTEGER s_qpcFreq = {};
     static LONGLONG s_nextFrameTick = 0;
     static double s_tickRemainder = 0.0;
@@ -91,11 +88,10 @@ namespace OverdriveEngineV7 {
     static bool s_glReady = false;
     static bool s_internalHookCall = false;
 
-    // 1. Mở khóa Kernel Windows 11 (0.5ms Timer + Tắt EcoQoS + MMCSS Critical Priority)
+    // 1. Mở khóa Kernel Windows 11 (0.5ms Timer + Tắt EcoQoS + Ưu tiên MMCSS Critical)
     void initKernelBoost() {
         if (s_kernelReady) return;
 
-        // Ép độ phân giải xung nhịp Kernel Windows 11 xuống 0.5ms (5000 đơn vị 100-ns)
         if (HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll")) {
             auto ntQuery = reinterpret_cast<PFN_NtQueryTimerResolution>(
                 GetProcAddress(hNtdll, "NtQueryTimerResolution")
@@ -124,7 +120,6 @@ namespace OverdriveEngineV7 {
             }
         }
 
-        // Tạo bộ đếm phần cứng độ phân giải cao (High-Resolution Waitable Timer) của Windows 11
         s_highResTimer = CreateWaitableTimerExW(
             nullptr,
             nullptr,
@@ -132,7 +127,6 @@ namespace OverdriveEngineV7 {
             TIMER_ALL_ACCESS
         );
 
-        // Nâng quyền ưu tiên CPU cho Geometry Dash lên mức cao nhất
         HANDLE hProcess = GetCurrentProcess();
         HANDLE hThread = GetCurrentThread();
         SetPriorityClass(hProcess, HIGH_PRIORITY_CLASS);
@@ -140,7 +134,6 @@ namespace OverdriveEngineV7 {
         SetProcessPriorityBoost(hProcess, FALSE);
         SetThreadPriorityBoost(hThread, FALSE);
 
-        // Vô hiệu hóa cơ chế bóp xung nhịp EcoQoS và khóa Timer trên Windows 11
         if (HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll")) {
             auto setProcInfo = reinterpret_cast<PFN_SetProcessInformation>(
                 GetProcAddress(hKernel32, "SetProcessInformation")
@@ -149,12 +142,11 @@ namespace OverdriveEngineV7 {
                 Win11PowerThrottling throttling = {};
                 throttling.Version = 1;
                 throttling.ControlMask = 0x1 | 0x4; // EXECUTION_SPEED | IGNORE_TIMER_RESOLUTION
-                throttling.StateMask = 0;           // 0 = Tắt hoàn toàn giới hạn điện năng
+                throttling.StateMask = 0;
                 setProcInfo(hProcess, 4, &throttling, sizeof(throttling));
             }
         }
 
-        // Đăng ký luồng xử lý chính vào hàng đợi phần cứng MMCSS ("Games" Critical)
         if (HMODULE hAvrt = LoadLibraryW(L"avrt.dll")) {
             auto avSetChars = reinterpret_cast<PFN_AvSetMmThreadCharsW>(
                 GetProcAddress(hAvrt, "AvSetMmThreadCharacteristicsW")
@@ -174,7 +166,6 @@ namespace OverdriveEngineV7 {
             }
         }
 
-        // Bật chế độ xuất hình trực tiếp độ trễ thấp trên Desktop Window Manager (DWM)
         if (HMODULE hDwm = LoadLibraryW(L"dwmapi.dll")) {
             s_dwmEnableMMCSS = reinterpret_cast<PFN_DwmEnableMMCSS>(
                 GetProcAddress(hDwm, "DwmEnableMMCSS")
@@ -192,7 +183,6 @@ namespace OverdriveEngineV7 {
         s_kernelReady = true;
     }
 
-    // Tự động dọn dẹp tài nguyên Kernel khi đóng game bằng RAII chuẩn C++ (Thay thế $on_mod(Unloaded))
     struct KernelLifecycleGuard {
         ~KernelLifecycleGuard() {
             if (!s_kernelReady) return;
@@ -215,7 +205,7 @@ namespace OverdriveEngineV7 {
     };
     static KernelLifecycleGuard s_lifecycleGuard;
 
-    // 2. Xử lý OpenGL: Tắt V-Sync 60Hz ở tầng Driver, sửa lỗi nhòe hình và khử răng cưa sắc nét
+    // 2. Tắt V-Sync 60Hz ở tầng Driver GPU, chống nhòe hình và khử răng cưa MSAA
     void configureVisualClarity() {
         if (!s_glReady) {
             HMODULE hOgl = GetModuleHandleW(L"opengl32.dll");
@@ -248,17 +238,14 @@ namespace OverdriveEngineV7 {
             );
         }
 
-        // Luôn ép Swap Interval = 0 ở tầng Driver GPU để màn 60Hz chạy thẳng 480+ FPS thật
         if (s_wglSwapIntervalEXT) {
             s_wglSwapIntervalEXT(0);
         }
 
-        // Bật khử răng cưa đa mẫu phần cứng (MSAA) sắc nét
         if (s_glEnable) {
             s_glEnable(GL_MULTISAMPLE_CAP);
         }
 
-        // Tắt hoàn toàn bộ lọc làm mờ đa giác gây nhòe hình và lỗi đường kẻ đen giữa các block
         if (s_glDisable) {
             s_glDisable(GL_POLYGON_SMOOTH_CAP);
             s_glDisable(GL_LINE_SMOOTH_CAP);
@@ -269,7 +256,6 @@ namespace OverdriveEngineV7 {
             s_glHint(GL_MULTISAMPLE_FILTER_HINT_NV_CAP, GL_NICEST_MODE);
         }
 
-        // Đẩy toàn bộ khung hình trong hàng đợi GPU ra màn hình ngay lập tức để xóa bóng mờ (Motion Blur)
         if (s_glFlush) {
             s_glFlush();
         }
@@ -288,7 +274,7 @@ namespace OverdriveEngineV7 {
         }
     }
 
-    // 4. Bộ điều nhịp phần cứng 480+ FPS thật & Tán xạ vệt xé hình trên màn 60Hz
+    // 4. Điều nhịp phần cứng 480+ FPS thật & Tán xạ vệt xé hình trên màn 60Hz
     void paceTrue480AndScrambleTear() {
         if (!s_kernelReady) {
             initKernelBoost();
@@ -298,16 +284,13 @@ namespace OverdriveEngineV7 {
 
         double activeDt = s_targetFrameTime;
         if (activeDt <= INTERNAL_BYPASS_INTERVAL) {
-            return; // Chế độ Uncapped hoàn toàn khi mở trần tối đa trong Eclipse
+            return;
         }
 
-        // Tính số tick phần cứng chính xác cho mỗi frame (bù cả phần lẻ thập phân để không trôi FPS)
         double exactTicks = (static_cast<double>(s_qpcFreq.QuadPart) * activeDt) + s_tickRemainder;
         LONGLONG stepTicks = static_cast<LONGLONG>(exactTicks);
         s_tickRemainder = exactTicks - static_cast<double>(stepTicks);
 
-        // Dịch pha vi mô theo tỷ lệ vàng (Golden-Ratio Tear Diffuser):
-        // Phân tán đường quét trên màn hình 60Hz để mắt thường không còn thấy vệt bể hình cố định
         double goldenPhase = std::fmod(static_cast<double>(s_frameCount) * 0.6180339887, 1.0) - 0.5;
         LONGLONG ditherTicks = static_cast<LONGLONG>(goldenPhase * (s_qpcFreq.QuadPart / 250000));
 
@@ -317,7 +300,6 @@ namespace OverdriveEngineV7 {
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
 
-        // Đồng bộ lại ngay nếu vừa chuyển cảnh hoặc vừa Alt+Tab
         if (now.QuadPart > targetTick + (stepTicks * 3)) {
             s_nextFrameTick = now.QuadPart;
             targetTick = s_nextFrameTick;
@@ -327,7 +309,6 @@ namespace OverdriveEngineV7 {
         if (remainingTicks > 0) {
             double remainingSec = static_cast<double>(remainingTicks) / static_cast<double>(s_qpcFreq.QuadPart);
 
-            // Chỉ dùng High-Res Kernel Timer khi thời gian dư > 0.85ms để không bao giờ bị ngủ lố (oversleep)
             if (remainingSec > 0.00085 && s_highResTimer != nullptr) {
                 LARGE_INTEGER dueTime;
                 dueTime.QuadPart = -static_cast<LONGLONG>((remainingSec - 0.0004) * 10000000.0);
@@ -337,7 +318,6 @@ namespace OverdriveEngineV7 {
                 }
             }
 
-            // Vòng lặp Spin-Wait độ chính xác nano-giây cho phần thời gian cuối cùng
             do {
                 YieldProcessor();
                 QueryPerformanceCounter(&now);
@@ -354,36 +334,25 @@ namespace OverdriveEngineV7 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 1. Hook CCApplication: Vô hiệu hóa Sleep(1) của game & Khóa sàn từ 480 FPS trở lên
-// ---------------------------------------------------------------------------
 class $modify(OverdriveApp, CCApplication) {
     void setAnimationInterval(double interval) {
-        if (!OverdriveEngineV7::s_internalHookCall) {
-            // Nếu game đặt FPS thấp hơn 480 (ví dụ 60 FPS), ép ngay lên sàn 480 FPS.
-            // Nếu Eclipse Menu đặt mức cao hơn (720/960/1440+ FPS), mở theo mức cao hơn đó!
+        if (!OverdriveEngineV8::s_internalHookCall) {
             if (interval > FLOOR_FRAME_TIME || interval <= 0.0) {
-                OverdriveEngineV7::s_targetFrameTime = FLOOR_FRAME_TIME;
+                OverdriveEngineV8::s_targetFrameTime = FLOOR_FRAME_TIME;
             } else {
-                OverdriveEngineV7::s_targetFrameTime = interval;
+                OverdriveEngineV8::s_targetFrameTime = interval;
             }
         }
-
-        // Luôn truyền xung nhịp 0.0001s xuống Cocos2d-x để vòng lặp của GD không bao giờ gọi Sleep(1),
-        // nhường toàn quyền điều nhịp chính xác tuyệt đối cho bộ đếm QPC phần cứng của bản mod!
         CCApplication::setAnimationInterval(INTERNAL_BYPASS_INTERVAL);
     }
 };
 
-// ---------------------------------------------------------------------------
-// 2. Hook CCScheduler: Bypass Frame 480Hz+, chống lệch hình & hỗ trợ Frame-Perfect
-// ---------------------------------------------------------------------------
 class $modify(OverdriveScheduler, CCScheduler) {
     void update(float dt) {
-        OverdriveEngineV7::initKernelBoost();
-        OverdriveEngineV7::pollHardwareInputBypass();
+        OverdriveEngineV8::initKernelBoost();
+        OverdriveEngineV8::pollHardwareInputBypass();
 
-        float targetDt = static_cast<float>(OverdriveEngineV7::s_targetFrameTime);
+        float targetDt = static_cast<float>(OverdriveEngineV8::s_targetFrameTime);
         if (targetDt > static_cast<float>(FLOOR_FRAME_TIME)) {
             targetDt = static_cast<float>(FLOOR_FRAME_TIME);
         }
@@ -391,27 +360,20 @@ class $modify(OverdriveScheduler, CCScheduler) {
         float timeScale = this->getTimeScale();
         float idealStep = (timeScale > 0.0f) ? (targetDt * timeScale) : targetDt;
 
-        // Trường hợp 1: Máy đang chạy mượt ở đúng 480 FPS (hoặc cao hơn cùng Eclipse):
-        // Lọc bỏ nhiễu thời gian vi mô (Zero-Drift Stabilizer) để icon bay mượt tuyệt đối,
-        // không bị lệch sub-pixel mà vẫn khớp nhạc 100%.
         if (dt > 0.0f && dt <= idealStep * 1.35f) {
             if (dt >= idealStep * 0.70f) {
-                OverdriveEngineV7::s_physicsDebt += (dt - idealStep);
-                float microAdjust = std::clamp(OverdriveEngineV7::s_physicsDebt * 0.15f, -0.00008f, 0.00008f);
-                OverdriveEngineV7::s_physicsDebt -= microAdjust;
+                OverdriveEngineV8::s_physicsDebt += (dt - idealStep);
+                float microAdjust = std::clamp(OverdriveEngineV8::s_physicsDebt * 0.15f, -0.00008f, 0.00008f);
+                OverdriveEngineV8::s_physicsDebt -= microAdjust;
                 CCScheduler::update(idealStep + microAdjust);
             } else {
-                // Đang chạy ở mức FPS siêu cao (> 600 FPS), giữ nguyên dt thực tế
                 CCScheduler::update(dt);
             }
             return;
         }
 
-        // Trường hợp 2: Màn chơi quá nặng làm frame bị trễ (dt > 1/480s):
-        // Kích hoạt Sub-Frame Bypass — chia nhỏ thành các frame 480Hz và đọc chuột ở từng bước
-        // để thực hiện các pha click Frame-Perfect dễ dàng ngay cả trong cảnh nặng!
         if (dt > idealStep * 1.35f && dt < 0.1f) {
-            float totalTime = dt + OverdriveEngineV7::s_subframeCarry;
+            float totalTime = dt + OverdriveEngineV8::s_subframeCarry;
             int subFrames = static_cast<int>(totalTime / idealStep);
             subFrames = std::clamp(subFrames, 1, 8);
 
@@ -422,43 +384,37 @@ class $modify(OverdriveScheduler, CCScheduler) {
 
             for (int i = 0; i < subFrames; ++i) {
                 if (i > 0) {
-                    OverdriveEngineV7::pollHardwareInputBypass();
+                    OverdriveEngineV8::pollHardwareInputBypass();
                 }
                 CCScheduler::update(stepDt);
             }
 
-            OverdriveEngineV7::s_subframeCarry = std::clamp(
+            OverdriveEngineV8::s_subframeCarry = std::clamp(
                 totalTime - (stepDt * static_cast<float>(subFrames)),
                 0.0f,
                 idealStep
             );
         } else {
-            OverdriveEngineV7::s_physicsDebt = 0.0f;
-            OverdriveEngineV7::s_subframeCarry = 0.0f;
+            OverdriveEngineV8::s_physicsDebt = 0.0f;
+            OverdriveEngineV8::s_subframeCarry = 0.0f;
             CCScheduler::update(idealStep);
         }
     }
 };
 
-// ---------------------------------------------------------------------------
-// 3. Hook CCEGLView: Xuất 480+ FPS thật lên màn 60Hz, khử răng cưa & xóa bể hình
-// ---------------------------------------------------------------------------
 class $modify(OverdriveEGLView, CCEGLView) {
     void swapBuffers() {
-        OverdriveEngineV7::configureVisualClarity();
-        OverdriveEngineV7::paceTrue480AndScrambleTear();
+        OverdriveEngineV8::configureVisualClarity();
+        OverdriveEngineV8::paceTrue480AndScrambleTear();
         CCEGLView::swapBuffers();
     }
 };
 
-// ---------------------------------------------------------------------------
-// Tự động kích hoạt ngay khi mở Geometry Dash 2.2081 (Không cần bật/tắt)
-// ---------------------------------------------------------------------------
 $on_mod(Loaded) {
-    OverdriveEngineV7::initKernelBoost();
+    OverdriveEngineV8::initKernelBoost();
 
     Loader::get()->queueInMainThread([]() {
-        OverdriveEngineV7::configureVisualClarity();
-        OverdriveEngineV7::unlockInternalLoop();
+        OverdriveEngineV8::configureVisualClarity();
+        OverdriveEngineV8::unlockInternalLoop();
     });
 }
