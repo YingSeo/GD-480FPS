@@ -1,12 +1,12 @@
 {
-    "geode": "4.3.0",
+    "geode": "5.11.2",
     "gd": {
         "win": "2.2081"
     },
-    "id": "yingseo.true480fps.unlocker",
-    "name": "True 480+ FPS HyperEngine",
-    "version": "v3.0.0",
+    "id": "yingseo.true480fps",
+    "name": "True 480+ FPS Overdrive",
+    "version": "v8.0.0",
     "developer": "YingSeo",
-    "description": "Minimum 480+ FPS Floor, Win11 0.5ms Kernel Boost, Anti-Blur/Tear & Eclipse Synergy.",
+    "description": "True 480+ FPS Unlocker, Frame-Perfect Bypass, Anti-Blur/MSAA and Win11 0.5ms Kernel Boost.",
     "early-load": true
 }
