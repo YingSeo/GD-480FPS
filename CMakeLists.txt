@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 
-project(True480FPSMod VERSION 3.0.0)
+project(True480FPSMod VERSION 8.0.0 LANGUAGES C CXX)
 
 add_library(${PROJECT_NAME} SHARED
     src/main.cpp
@@ -16,8 +17,7 @@ endif()
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 
 if (WIN32)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
-    target_link_libraries(${PROJECT_NAME} PRIVATE winmm avrt opengl32 dwmapi)
+    target_link_libraries(${PROJECT_NAME} PRIVATE user32 gdi32 opengl32)
 endif()
 
 setup_geode_mod(${PROJECT_NAME})
