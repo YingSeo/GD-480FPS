@@ -8,40 +8,28 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Generate Clean Geode v5 (C++23) Project for MX350
+      - name: Generate Official Geode v5 Project Structure (MX350 Edition)
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Xóa file main.cpp thừa ở thư mục gốc để tránh xung đột và tạo thư mục src sạch
-          if (Test-Path "main.cpp") {
-            Remove-Item "main.cpp" -Force
-          }
-          if (!(Test-Path "src")) {
-            New-Item -ItemType Directory -Path "src" | Out-Null
-          }
+          # 1. Dọn sạch file thừa để không xung đột đường dẫn
+          if (Test-Path "main.cpp") { Remove-Item "main.cpp" -Force }
+          if (Test-Path "build") { Remove-Item "build" -Recurse -Force }
+          if (!(Test-Path "src")) { New-Item -ItemType Directory -Path "src" | Out-Null }
 
-          # 2. Lấy phiên bản Geode SDK v5 mới nhất (hiện tại là 5.11.2 cho GD 2.2081)
+          # 2. Lấy phiên bản Geode SDK mới nhất từ GitHub API
           $geodeVer = "5.11.2"
           try {
-            $headers = @{
-              "Accept" = "application/vnd.github+json"
-              "User-Agent" = "GeodeMX350Builder"
-            }
-            if ($env:GH_TOKEN) {
-              $headers["Authorization"] = "Bearer $env:GH_TOKEN"
-            }
+            $headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "GeodeModBuilder" }
+            if ($env:GH_TOKEN) { $headers["Authorization"] = "Bearer $env:GH_TOKEN" }
             $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/geode-sdk/geode/releases/latest" -Headers $headers -TimeoutSec 15
-            if ($rel.tag_name) {
-              $geodeVer = $rel.tag_name -replace '^v',''
-            }
+            if ($rel.tag_name) { $geodeVer = ($rel.tag_name -replace '^v','').Trim() }
           } catch {
-            Write-Host "Using default Geode v5 version: $geodeVer"
+            Write-Host "Using default Geode version: $geodeVer"
           }
 
-          Write-Host "Target Geode SDK Version: $geodeVer (C++23)"
-
-          # 3. Ghi file mod.json chuẩn Geode v5
+          # 3. Tạo mod.json chuẩn Geode v5
           $modJson = [ordered]@{
             geode = $geodeVer
             gd = @{
@@ -49,498 +37,518 @@ jobs:
             }
             id = "yingseo.true480fps"
             name = "True 480 FPS MX350 HyperLight"
-            version = "v10.0.0"
+            version = "v11.0.0"
             developer = "YingSeo"
-            description = "True 480+ FPS Engine optimized for 8GB RAM & NVIDIA MX350 on 60Hz displays."
+            description = "True 480+ FPS Unlocker optimized for 8GB RAM and NVIDIA GeForce MX350."
             "early-load" = $true
           } | ConvertTo-Json -Depth 10
           [System.IO.File]::WriteAllText("$PWD/mod.json", $modJson, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 4. Ghi file CMakeLists.txt chuẩn C++23 bắt buộc của Geode v5
+          # 4. Tạo CMakeLists.txt giống hệt 100% mẫu geode-sdk/example-mod (Không thêm macro gây lỗi PCH)
           $cmake = @(
             'cmake_minimum_required(VERSION 3.21)',
             'set(CMAKE_CXX_STANDARD 23)',
             'set(CMAKE_CXX_STANDARD_REQUIRED ON)',
-            'set(CMAKE_CXX_EXTENSIONS OFF)',
+            'if ("${CMAKE_SYSTEM_NAME}" STREQUAL "iOS" OR IOS)',
+            '    set(CMAKE_OSX_ARCHITECTURES "arm64")',
+            'else()',
+            '    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")',
+            'endif()',
             'set(CMAKE_CXX_VISIBILITY_PRESET hidden)',
-            'project(True480FPSMod VERSION 10.0.0 LANGUAGES C CXX)',
-            'add_library(${PROJECT_NAME} SHARED src/main.cpp)',
+            '',
+            'project(True480FPSMod VERSION 1.0.0)',
+            '',
+            'file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)',
+            'add_library(${PROJECT_NAME} SHARED ${SOURCES})',
+            '',
             'if (NOT DEFINED ENV{GEODE_SDK})',
-            '    message(FATAL_ERROR "Unable to find Geode SDK!")',
+            '    message(FATAL_ERROR "Unable to find Geode SDK! Please define GEODE_SDK environment variable to point to Geode")',
+            'else()',
+            '    message(STATUS "Found Geode: $ENV{GEODE_SDK}")',
             'endif()',
+            '',
             'add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)',
-            'if (WIN32)',
-            '    target_compile_definitions(${PROJECT_NAME} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)',
-            '    target_link_libraries(${PROJECT_NAME} PRIVATE user32 gdi32 opengl32)',
-            'endif()',
             'setup_geode_mod(${PROJECT_NAME})'
           ) -join "`n"
           [System.IO.File]::WriteAllText("$PWD/CMakeLists.txt", $cmake, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 5. Ghi trực tiếp mã nguồn src/main.cpp (Bản v10.0 tối ưu riêng cho 8GB RAM + MX350)
-          $cppCode = @'
-          #ifndef WIN32_LEAN_AND_MEAN
-          #define WIN32_LEAN_AND_MEAN
-          #endif
-          #ifndef NOMINMAX
-          #define NOMINMAX
-          #endif
+          # 5. Tạo src/main.cpp (Đặt #include <Geode/Geode.hpp> ở dòng 1 để khớp PCH 100%)
+          $cppLines = @(
+            '#include <Geode/Geode.hpp>',
+            '#include <Geode/modify/CCScheduler.hpp>',
+            '#include <Geode/modify/CCEGLView.hpp>',
+            '#include <cmath>',
+            '#include <cstdint>',
+            '',
+            'using namespace geode::prelude;',
+            '',
+            '// Ep Driver NVIDIA Optimus kich hoat card roi GeForce MX350 o xung nhip cao nhat',
+            'extern "C" {',
+            '    __declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;',
+            '    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;',
+            '}',
+            '',
+            'constexpr double FLOOR_FPS = 480.0;',
+            'constexpr double FLOOR_FRAME_TIME = 1.0 / FLOOR_FPS;',
+            'constexpr double BYPASS_SLEEP_INTERVAL = 0.0001;',
+            '',
+            'constexpr unsigned int GL_DITHER_CAP                 = 0x0BD0;',
+            'constexpr unsigned int GL_LINE_SMOOTH_CAP            = 0x0B20;',
+            'constexpr unsigned int GL_POLYGON_SMOOTH_CAP         = 0x0B41;',
+            'constexpr unsigned int GL_MULTISAMPLE_CAP            = 0x809D;',
+            'constexpr unsigned int GL_PERSPECTIVE_CORRECTION_CAP = 0x0C50;',
+            'constexpr unsigned int GL_FASTEST_MODE               = 0x1101;',
+            '',
+            '#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION',
+            '#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002',
+            '#endif',
+            '',
+            'namespace {',
+            '    template <typename T>',
+            '    constexpr T clampVal(T val, T lo, T hi) {',
+            '        return (val < lo) ? lo : ((val > hi) ? hi : val);',
+            '    }',
+            '',
+            '    struct Win11PowerThrottling {',
+            '        ULONG Version;',
+            '        ULONG ControlMask;',
+            '        ULONG StateMask;',
+            '    };',
+            '',
+            '    struct Win11MemoryPriority {',
+            '        ULONG MemoryPriority;',
+            '    };',
+            '',
+            '    using PFN_NtQueryTimerResolution = LONG(NTAPI*)(PULONG, PULONG, PULONG);',
+            '    using PFN_NtSetTimerResolution   = LONG(NTAPI*)(ULONG, BOOLEAN, PULONG);',
+            '    using PFN_timeBeginPeriod        = UINT(WINAPI*)(UINT);',
+            '    using PFN_timeEndPeriod          = UINT(WINAPI*)(UINT);',
+            '    using PFN_AvSetMmThreadCharsW    = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);',
+            '    using PFN_AvSetMmThreadPriority  = BOOL(WINAPI*)(HANDLE, int);',
+            '    using PFN_AvRevertMmThreadChars  = BOOL(WINAPI*)(HANDLE);',
+            '    using PFN_DwmEnableMMCSS         = HRESULT(WINAPI*)(BOOL);',
+            '    using PFN_SetProcessInformation  = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);',
+            '    using PFN_SetThreadInformation   = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);',
+            '',
+            '    using PFN_GetQueueStatus         = DWORD(WINAPI*)(UINT);',
+            '    using PFN_PeekMessageW           = BOOL(WINAPI*)(LPMSG, HWND, UINT, UINT, UINT);',
+            '    using PFN_TranslateMessage       = BOOL(WINAPI*)(const MSG*);',
+            '    using PFN_DispatchMessageW       = LRESULT(WINAPI*)(const MSG*);',
+            '',
+            '    using PFN_wglGetCurrentContext   = HGLRC(WINAPI*)();',
+            '    using PFN_wglGetProcAddress      = PROC(WINAPI*)(LPCSTR);',
+            '    using PFN_wglSwapIntervalEXT     = BOOL(WINAPI*)(int);',
+            '    using PFN_glDisable              = void(APIENTRY*)(unsigned int);',
+            '    using PFN_glHint                 = void(APIENTRY*)(unsigned int, unsigned int);',
+            '',
+            '    using PFN_CCAppShared            = void*(__cdecl*)();',
+            '    using PFN_CCAppSetInterval       = void(__fastcall*)(void*, double);',
+            '    using PFN_CCEGLShared            = void*(__cdecl*)();',
+            '    using PFN_CCEGLToggleVSync       = void(__fastcall*)(void*, bool);',
+            '}',
+            '',
+            'namespace MX350EngineV11 {',
+            '    static LARGE_INTEGER s_qpcFreq = {};',
+            '    static LONGLONG s_nextFrameTick = 0;',
+            '    static LONGLONG s_lastSwapTick = 0;',
+            '    static double s_tickRemainder = 0.0;',
+            '',
+            '    static HANDLE s_highResTimer = nullptr;',
+            '    static HANDLE s_mmcssHandle = nullptr;',
+            '    static HGLRC s_lastGlContext = nullptr;',
+            '',
+            '    static PFN_timeEndPeriod s_timeEndPeriod = nullptr;',
+            '    static PFN_AvRevertMmThreadChars s_avRevert = nullptr;',
+            '    static PFN_DwmEnableMMCSS s_dwmEnableMMCSS = nullptr;',
+            '',
+            '    static PFN_GetQueueStatus s_getQueueStatus = nullptr;',
+            '    static PFN_PeekMessageW s_peekMessageW = nullptr;',
+            '    static PFN_TranslateMessage s_translateMessage = nullptr;',
+            '    static PFN_DispatchMessageW s_dispatchMessageW = nullptr;',
+            '',
+            '    static PFN_wglGetCurrentContext s_wglGetCurrentContext = nullptr;',
+            '    static PFN_wglGetProcAddress s_wglGetProcAddress = nullptr;',
+            '    static PFN_wglSwapIntervalEXT s_wglSwapIntervalEXT = nullptr;',
+            '    static PFN_glDisable s_glDisable = nullptr;',
+            '    static PFN_glHint s_glHint = nullptr;',
+            '',
+            '    static PFN_CCAppShared s_ccAppShared = nullptr;',
+            '    static PFN_CCAppSetInterval s_ccAppSetInterval = nullptr;',
+            '    static PFN_CCEGLShared s_ccEglShared = nullptr;',
+            '    static PFN_CCEGLToggleVSync s_ccEglToggleVSync = nullptr;',
+            '',
+            '    static float s_physicsDebt = 0.0f;',
+            '    static uint64_t s_frameCount = 0;',
+            '',
+            '    static bool s_kernelReady = false;',
+            '    static bool s_glSymbolsLoaded = false;',
+            '    static bool s_cocosSymbolsLoaded = false;',
+            '',
+            '    void unlockCocosLimiter() {',
+            '        if (!s_cocosSymbolsLoaded) {',
+            '            if (HMODULE hCocos = GetModuleHandleW(L"libcocos2d.dll")) {',
+            '                s_ccAppShared = reinterpret_cast<PFN_CCAppShared>(',
+            '                    GetProcAddress(hCocos, "?sharedApplication@CCApplication@cocos2d@@SAPEAV12@XZ")',
+            '                );',
+            '                s_ccAppSetInterval = reinterpret_cast<PFN_CCAppSetInterval>(',
+            '                    GetProcAddress(hCocos, "?setAnimationInterval@CCApplication@cocos2d@@UEAAXN@Z")',
+            '                );',
+            '                s_ccEglShared = reinterpret_cast<PFN_CCEGLShared>(',
+            '                    GetProcAddress(hCocos, "?sharedOpenGLView@CCEGLView@cocos2d@@SAPEAV12@XZ")',
+            '                );',
+            '                s_ccEglToggleVSync = reinterpret_cast<PFN_CCEGLToggleVSync>(',
+            '                    GetProcAddress(hCocos, "?toggleVerticalSync@CCEGLView@cocos2d@@QEAAX_N@Z")',
+            '                );',
+            '            }',
+            '            s_cocosSymbolsLoaded = true;',
+            '        }',
+            '        if (s_ccEglShared && s_ccEglToggleVSync) {',
+            '            if (void* view = s_ccEglShared()) {',
+            '                s_ccEglToggleVSync(view, false);',
+            '            }',
+            '        }',
+            '        if (s_ccAppShared && s_ccAppSetInterval) {',
+            '            if (void* app = s_ccAppShared()) {',
+            '                s_ccAppSetInterval(app, BYPASS_SLEEP_INTERVAL);',
+            '            }',
+            '        }',
+            '    }',
+            '',
+            '    void initMX350And8GBRamBoost() {',
+            '        if (s_kernelReady) return;',
+            '',
+            '        if (HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll")) {',
+            '            auto ntQuery = reinterpret_cast<PFN_NtQueryTimerResolution>(',
+            '                GetProcAddress(hNtdll, "NtQueryTimerResolution")',
+            '            );',
+            '            auto ntSet = reinterpret_cast<PFN_NtSetTimerResolution>(',
+            '                GetProcAddress(hNtdll, "NtSetTimerResolution")',
+            '            );',
+            '            if (ntSet) {',
+            '                ULONG minRes = 0, maxRes = 5000, curRes = 0;',
+            '                if (ntQuery) ntQuery(&minRes, &maxRes, &curRes);',
+            '                ntSet(maxRes, TRUE, &curRes);',
+            '            }',
+            '        }',
+            '',
+            '        if (HMODULE hWinmm = LoadLibraryW(L"winmm.dll")) {',
+            '            auto timeBegin = reinterpret_cast<PFN_timeBeginPeriod>(',
+            '                GetProcAddress(hWinmm, "timeBeginPeriod")',
+            '            );',
+            '            s_timeEndPeriod = reinterpret_cast<PFN_timeEndPeriod>(',
+            '                GetProcAddress(hWinmm, "timeEndPeriod")',
+            '            );',
+            '            if (timeBegin) timeBegin(1);',
+            '        }',
+            '',
+            '        if (HMODULE hUser32 = GetModuleHandleW(L"user32.dll")) {',
+            '            s_getQueueStatus = reinterpret_cast<PFN_GetQueueStatus>(GetProcAddress(hUser32, "GetQueueStatus"));',
+            '            s_peekMessageW = reinterpret_cast<PFN_PeekMessageW>(GetProcAddress(hUser32, "PeekMessageW"));',
+            '            s_translateMessage = reinterpret_cast<PFN_TranslateMessage>(GetProcAddress(hUser32, "TranslateMessage"));',
+            '            s_dispatchMessageW = reinterpret_cast<PFN_DispatchMessageW>(GetProcAddress(hUser32, "DispatchMessageW"));',
+            '        }',
+            '',
+            '        s_highResTimer = CreateWaitableTimerExW(',
+            '            nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS',
+            '        );',
+            '',
+            '        HANDLE hProcess = GetCurrentProcess();',
+            '        HANDLE hThread = GetCurrentThread();',
+            '        SetPriorityClass(hProcess, HIGH_PRIORITY_CLASS);',
+            '        SetThreadPriority(hThread, THREAD_PRIORITY_HIGHEST);',
+            '        SetProcessPriorityBoost(hProcess, FALSE);',
+            '        SetThreadPriorityBoost(hThread, FALSE);',
+            '',
+            '        SetProcessWorkingSetSizeEx(',
+            '            hProcess,',
+            '            static_cast<SIZE_T>(256ULL * 1024ULL * 1024ULL),',
+            '            static_cast<SIZE_T>(1536ULL * 1024ULL * 1024ULL),',
+            '            0',
+            '        );',
+            '',
+            '        if (HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll")) {',
+            '            auto setProcInfo = reinterpret_cast<PFN_SetProcessInformation>(',
+            '                GetProcAddress(hKernel32, "SetProcessInformation")',
+            '            );',
+            '            auto setThreadInfo = reinterpret_cast<PFN_SetThreadInformation>(',
+            '                GetProcAddress(hKernel32, "SetThreadInformation")',
+            '            );',
+            '            if (setProcInfo) {',
+            '                Win11PowerThrottling throttling = { 1, 0x1 | 0x4, 0 };',
+            '                setProcInfo(hProcess, 4, &throttling, sizeof(throttling));',
+            '                Win11MemoryPriority memPrio = { 5 };',
+            '                setProcInfo(hProcess, 1, &memPrio, sizeof(memPrio));',
+            '            }',
+            '            if (setThreadInfo) {',
+            '                Win11PowerThrottling threadThrottling = { 1, 0x1, 0 };',
+            '                setThreadInfo(hThread, 11, &threadThrottling, sizeof(threadThrottling));',
+            '            }',
+            '        }',
+            '',
+            '        if (HMODULE hAvrt = LoadLibraryW(L"avrt.dll")) {',
+            '            auto avSetChars = reinterpret_cast<PFN_AvSetMmThreadCharsW>(',
+            '                GetProcAddress(hAvrt, "AvSetMmThreadCharacteristicsW")',
+            '            );',
+            '            auto avSetPrio = reinterpret_cast<PFN_AvSetMmThreadPriority>(',
+            '                GetProcAddress(hAvrt, "AvSetMmThreadPriority")',
+            '            );',
+            '            s_avRevert = reinterpret_cast<PFN_AvRevertMmThreadChars>(',
+            '                GetProcAddress(hAvrt, "AvRevertMmThreadCharacteristics")',
+            '            );',
+            '            if (avSetChars) {',
+            '                DWORD taskIdx = 0;',
+            '                s_mmcssHandle = avSetChars(L"Games", &taskIdx);',
+            '                if (s_mmcssHandle && avSetPrio) avSetPrio(s_mmcssHandle, 2);',
+            '            }',
+            '        }',
+            '',
+            '        if (HMODULE hDwm = LoadLibraryW(L"dwmapi.dll")) {',
+            '            s_dwmEnableMMCSS = reinterpret_cast<PFN_DwmEnableMMCSS>(',
+            '                GetProcAddress(hDwm, "DwmEnableMMCSS")',
+            '            );',
+            '            if (s_dwmEnableMMCSS) s_dwmEnableMMCSS(TRUE);',
+            '        }',
+            '',
+            '        QueryPerformanceFrequency(&s_qpcFreq);',
+            '        LARGE_INTEGER now;',
+            '        QueryPerformanceCounter(&now);',
+            '        s_nextFrameTick = now.QuadPart;',
+            '        s_lastSwapTick = now.QuadPart;',
+            '',
+            '        s_kernelReady = true;',
+            '    }',
+            '',
+            '    struct MX350LifecycleGuard {',
+            '        ~MX350LifecycleGuard() {',
+            '            if (!s_kernelReady) return;',
+            '            if (s_highResTimer) {',
+            '                CloseHandle(s_highResTimer);',
+            '                s_highResTimer = nullptr;',
+            '            }',
+            '            if (s_mmcssHandle && s_avRevert) {',
+            '                s_avRevert(s_mmcssHandle);',
+            '                s_mmcssHandle = nullptr;',
+            '            }',
+            '            if (s_dwmEnableMMCSS) s_dwmEnableMMCSS(FALSE);',
+            '            if (s_timeEndPeriod) s_timeEndPeriod(1);',
+            '            s_kernelReady = false;',
+            '        }',
+            '    };',
+            '    static MX350LifecycleGuard s_guard;',
+            '',
+            '    void optimizeMX350OpenGL() {',
+            '        if (!s_glSymbolsLoaded) {',
+            '            HMODULE hOgl = GetModuleHandleW(L"opengl32.dll");',
+            '            if (!hOgl) hOgl = LoadLibraryW(L"opengl32.dll");',
+            '            if (hOgl) {',
+            '                s_wglGetCurrentContext = reinterpret_cast<PFN_wglGetCurrentContext>(',
+            '                    GetProcAddress(hOgl, "wglGetCurrentContext")',
+            '                );',
+            '                s_wglGetProcAddress = reinterpret_cast<PFN_wglGetProcAddress>(',
+            '                    GetProcAddress(hOgl, "wglGetProcAddress")',
+            '                );',
+            '                s_glDisable = reinterpret_cast<PFN_glDisable>(GetProcAddress(hOgl, "glDisable"));',
+            '                s_glHint = reinterpret_cast<PFN_glHint>(GetProcAddress(hOgl, "glHint"));',
+            '            }',
+            '            s_glSymbolsLoaded = true;',
+            '        }',
+            '',
+            '        HGLRC currentCtx = s_wglGetCurrentContext ? s_wglGetCurrentContext() : nullptr;',
+            '        if (currentCtx != s_lastGlContext || (s_frameCount % 480 == 0)) {',
+            '            s_lastGlContext = currentCtx;',
+            '            if (!s_wglSwapIntervalEXT && s_wglGetProcAddress) {',
+            '                s_wglSwapIntervalEXT = reinterpret_cast<PFN_wglSwapIntervalEXT>(',
+            '                    s_wglGetProcAddress("wglSwapIntervalEXT")',
+            '                );',
+            '            }',
+            '            if (s_wglSwapIntervalEXT) s_wglSwapIntervalEXT(0);',
+            '            if (s_glDisable) {',
+            '                s_glDisable(GL_MULTISAMPLE_CAP);',
+            '                s_glDisable(GL_POLYGON_SMOOTH_CAP);',
+            '                s_glDisable(GL_LINE_SMOOTH_CAP);',
+            '                s_glDisable(GL_DITHER_CAP);',
+            '            }',
+            '            if (s_glHint) {',
+            '                s_glHint(GL_PERSPECTIVE_CORRECTION_CAP, GL_FASTEST_MODE);',
+            '            }',
+            '            unlockCocosLimiter();',
+            '        }',
+            '    }',
+            '',
+            '    void pollFastInput480Hz() {',
+            '        if (s_getQueueStatus && s_peekMessageW && s_translateMessage && s_dispatchMessageW) {',
+            '            if ((s_getQueueStatus(0x04FF) >> 16) != 0) {',
+            '                MSG msg;',
+            '                while (s_peekMessageW(&msg, nullptr, WM_MOUSEFIRST, WM_MOUSELAST, PM_REMOVE | PM_NOYIELD)) {',
+            '                    s_translateMessage(&msg);',
+            '                    s_dispatchMessageW(&msg);',
+            '                }',
+            '                while (s_peekMessageW(&msg, nullptr, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE | PM_NOYIELD)) {',
+            '                    s_translateMessage(&msg);',
+            '                    s_dispatchMessageW(&msg);',
+            '                }',
+            '            }',
+            '        }',
+            '    }',
+            '',
+            '    void paceFrameMX350() {',
+            '        if (!s_kernelReady) initMX350And8GBRamBoost();',
+            '        ++s_frameCount;',
+            '',
+            '        LARGE_INTEGER now;',
+            '        QueryPerformanceCounter(&now);',
+            '',
+            '        LONGLONG rawDelta = now.QuadPart - s_lastSwapTick;',
+            '        s_lastSwapTick = now.QuadPart;',
+            '        if (rawDelta > 0 && rawDelta < (s_qpcFreq.QuadPart / 540)) {',
+            '            s_nextFrameTick = now.QuadPart;',
+            '            return;',
+            '        }',
+            '',
+            '        double exactTicks = (static_cast<double>(s_qpcFreq.QuadPart) * FLOOR_FRAME_TIME) + s_tickRemainder;',
+            '        LONGLONG stepTicks = static_cast<LONGLONG>(exactTicks);',
+            '        s_tickRemainder = exactTicks - static_cast<double>(stepTicks);',
+            '',
+            '        double goldenPhase = std::fmod(static_cast<double>(s_frameCount) * 0.61803398875, 1.0) - 0.5;',
+            '        LONGLONG ditherTicks = static_cast<LONGLONG>(goldenPhase * (s_qpcFreq.QuadPart / 280000));',
+            '',
+            '        s_nextFrameTick += stepTicks;',
+            '        LONGLONG targetTick = s_nextFrameTick + ditherTicks;',
+            '',
+            '        if (now.QuadPart >= targetTick) {',
+            '            if (now.QuadPart > targetTick + (stepTicks * 2)) {',
+            '                s_nextFrameTick = now.QuadPart;',
+            '            }',
+            '            return;',
+            '        }',
+            '',
+            '        LONGLONG remainingTicks = targetTick - now.QuadPart;',
+            '        double remainingSec = static_cast<double>(remainingTicks) / static_cast<double>(s_qpcFreq.QuadPart);',
+            '',
+            '        if (remainingSec > 0.00090 && s_highResTimer != nullptr) {',
+            '            LARGE_INTEGER dueTime;',
+            '            dueTime.QuadPart = -static_cast<LONGLONG>((remainingSec - 0.00045) * 10000000.0);',
+            '            if (dueTime.QuadPart < 0) {',
+            '                SetWaitableTimer(s_highResTimer, &dueTime, 0, nullptr, nullptr, FALSE);',
+            '                WaitForSingleObject(s_highResTimer, 1);',
+            '            }',
+            '        }',
+            '',
+            '        do {',
+            '            YieldProcessor();',
+            '            QueryPerformanceCounter(&now);',
+            '        } while (now.QuadPart < targetTick);',
+            '    }',
+            '}',
+            '',
+            'class $modify(MX350Scheduler, CCScheduler) {',
+            '    void update(float dt) {',
+            '        MX350EngineV11::initMX350And8GBRamBoost();',
+            '        MX350EngineV11::pollFastInput480Hz();',
+            '',
+            '        constexpr float idealStep = static_cast<float>(FLOOR_FRAME_TIME);',
+            '',
+            '        if (dt > 0.0f && dt < idealStep * 0.85f) {',
+            '            CCScheduler::update(dt);',
+            '            return;',
+            '        }',
+            '',
+            '        if (dt >= idealStep * 0.85f && dt <= 0.05f) {',
+            '            MX350EngineV11::s_physicsDebt += (dt - idealStep);',
+            '            MX350EngineV11::s_physicsDebt = clampVal(MX350EngineV11::s_physicsDebt, -idealStep * 2.0f, idealStep * 2.0f);',
+            '            float correction = clampVal(MX350EngineV11::s_physicsDebt * 0.20f, -0.00015f, 0.00015f);',
+            '            MX350EngineV11::s_physicsDebt -= correction;',
+            '            CCScheduler::update(idealStep + correction);',
+            '        } else {',
+            '            MX350EngineV11::s_physicsDebt = 0.0f;',
+            '            CCScheduler::update(idealStep);',
+            '        }',
+            '    }',
+            '};',
+            '',
+            'class $modify(MX350EGLView, CCEGLView) {',
+            '    void swapBuffers() {',
+            '        MX350EngineV11::optimizeMX350OpenGL();',
+            '        MX350EngineV11::paceFrameMX350();',
+            '        CCEGLView::swapBuffers();',
+            '    }',
+            '};',
+            '',
+            '$on_mod(Loaded) {',
+            '    MX350EngineV11::initMX350And8GBRamBoost();',
+            '    Loader::get()->queueInMainThread([]() {',
+            '        MX350EngineV11::optimizeMX350OpenGL();',
+            '        MX350EngineV11::unlockCocosLimiter();',
+            '    });',
+            '}'
+          ) -join "`n"
+          [System.IO.File]::WriteAllText("$PWD/src/main.cpp", $cppLines, (New-Object System.Text.UTF8Encoding($false)))
 
-          #include <Geode/Geode.hpp>
-          #include <Geode/modify/CCScheduler.hpp>
-          #include <Geode/modify/CCEGLView.hpp>
-
-          #include <Windows.h>
-          #include <cmath>
-          #include <cstdint>
-
-          using namespace geode::prelude;
-
-          // Ép Driver NVIDIA Optimus kích hoạt card rời GeForce MX350 ở hiệu năng cao nhất
-          extern "C" {
-              __declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
-              __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
-          }
-
-          constexpr double FLOOR_FPS = 480.0;
-          constexpr double FLOOR_FRAME_TIME = 1.0 / FLOOR_FPS;
-          constexpr double BYPASS_SLEEP_INTERVAL = 0.0001;
-
-          // Hằng số OpenGL tối ưu tốc độ cho GPU băng thông 64-bit (MX350)
-          constexpr unsigned int GL_DITHER_CAP                 = 0x0BD0;
-          constexpr unsigned int GL_LINE_SMOOTH_CAP            = 0x0B20;
-          constexpr unsigned int GL_POLYGON_SMOOTH_CAP         = 0x0B41;
-          constexpr unsigned int GL_MULTISAMPLE_CAP            = 0x809D;
-          constexpr unsigned int GL_PERSPECTIVE_CORRECTION_CAP = 0x0C50;
-          constexpr unsigned int GL_FASTEST_MODE               = 0x1101;
-
-          #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
-          #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
-          #endif
-
-          #ifndef QS_RAWINPUT
-          #define QS_RAWINPUT 0x0400
-          #endif
-
-          namespace {
-              template <typename T>
-              constexpr T clampVal(T val, T lo, T hi) {
-                  return (val < lo) ? lo : ((val > hi) ? hi : val);
-              }
-
-              struct Win11PowerThrottling {
-                  ULONG Version;
-                  ULONG ControlMask;
-                  ULONG StateMask;
-              };
-
-              struct Win11MemoryPriority {
-                  ULONG MemoryPriority;
-              };
-
-              using PFN_NtQueryTimerResolution = LONG(NTAPI*)(PULONG, PULONG, PULONG);
-              using PFN_NtSetTimerResolution   = LONG(NTAPI*)(ULONG, BOOLEAN, PULONG);
-              using PFN_timeBeginPeriod        = UINT(WINAPI*)(UINT);
-              using PFN_timeEndPeriod          = UINT(WINAPI*)(UINT);
-              using PFN_AvSetMmThreadCharsW    = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);
-              using PFN_AvSetMmThreadPriority  = BOOL(WINAPI*)(HANDLE, int);
-              using PFN_AvRevertMmThreadChars  = BOOL(WINAPI*)(HANDLE);
-              using PFN_DwmEnableMMCSS         = HRESULT(WINAPI*)(BOOL);
-              using PFN_SetProcessInformation  = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);
-              using PFN_SetThreadInformation   = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);
-
-              using PFN_wglGetCurrentContext   = HGLRC(WINAPI*)();
-              using PFN_wglGetProcAddress      = PROC(WINAPI*)(LPCSTR);
-              using PFN_wglSwapIntervalEXT     = BOOL(WINAPI*)(int);
-              using PFN_glDisable              = void(APIENTRY*)(unsigned int);
-              using PFN_glHint                 = void(APIENTRY*)(unsigned int, unsigned int);
-
-              using PFN_CCAppShared            = void*(__cdecl*)();
-              using PFN_CCAppSetInterval       = void(__fastcall*)(void*, double);
-              using PFN_CCEGLShared            = void*(__cdecl*)();
-              using PFN_CCEGLToggleVSync       = void(__fastcall*)(void*, bool);
-          }
-
-          namespace MX350HyperEngine {
-              static LARGE_INTEGER s_qpcFreq = {};
-              static LONGLONG s_nextFrameTick = 0;
-              static LONGLONG s_lastSwapTick = 0;
-              static double s_tickRemainder = 0.0;
-
-              static HANDLE s_highResTimer = nullptr;
-              static HANDLE s_mmcssHandle = nullptr;
-              static HGLRC s_lastGlContext = nullptr;
-
-              static PFN_timeEndPeriod s_timeEndPeriod = nullptr;
-              static PFN_AvRevertMmThreadChars s_avRevert = nullptr;
-              static PFN_DwmEnableMMCSS s_dwmEnableMMCSS = nullptr;
-
-              static PFN_wglGetCurrentContext s_wglGetCurrentContext = nullptr;
-              static PFN_wglGetProcAddress s_wglGetProcAddress = nullptr;
-              static PFN_wglSwapIntervalEXT s_wglSwapIntervalEXT = nullptr;
-              static PFN_glDisable s_glDisable = nullptr;
-              static PFN_glHint s_glHint = nullptr;
-
-              static PFN_CCAppShared s_ccAppShared = nullptr;
-              static PFN_CCAppSetInterval s_ccAppSetInterval = nullptr;
-              static PFN_CCEGLShared s_ccEglShared = nullptr;
-              static PFN_CCEGLToggleVSync s_ccEglToggleVSync = nullptr;
-
-              static float s_physicsDebt = 0.0f;
-              static uint64_t s_frameCount = 0;
-
-              static bool s_kernelReady = false;
-              static bool s_glSymbolsLoaded = false;
-              static bool s_cocosSymbolsLoaded = false;
-
-              void unlockCocosLimiter() {
-                  if (!s_cocosSymbolsLoaded) {
-                      if (HMODULE hCocos = GetModuleHandleW(L"libcocos2d.dll")) {
-                          s_ccAppShared = reinterpret_cast<PFN_CCAppShared>(
-                              GetProcAddress(hCocos, "?sharedApplication@CCApplication@cocos2d@@SAPEAV12@XZ")
-                          );
-                          s_ccAppSetInterval = reinterpret_cast<PFN_CCAppSetInterval>(
-                              GetProcAddress(hCocos, "?setAnimationInterval@CCApplication@cocos2d@@UEAAXN@Z")
-                          );
-                          s_ccEglShared = reinterpret_cast<PFN_CCEGLShared>(
-                              GetProcAddress(hCocos, "?sharedOpenGLView@CCEGLView@cocos2d@@SAPEAV12@XZ")
-                          );
-                          s_ccEglToggleVSync = reinterpret_cast<PFN_CCEGLToggleVSync>(
-                              GetProcAddress(hCocos, "?toggleVerticalSync@CCEGLView@cocos2d@@QEAAX_N@Z")
-                          );
-                      }
-                      s_cocosSymbolsLoaded = true;
-                  }
-
-                  if (s_ccEglShared && s_ccEglToggleVSync) {
-                      if (void* view = s_ccEglShared()) {
-                          s_ccEglToggleVSync(view, false);
-                      }
-                  }
-                  if (s_ccAppShared && s_ccAppSetInterval) {
-                      if (void* app = s_ccAppShared()) {
-                          s_ccAppSetInterval(app, BYPASS_SLEEP_INTERVAL);
-                      }
-                  }
-              }
-
-              void initMX350And8GBRamBoost() {
-                  if (s_kernelReady) return;
-
-                  // 1. Mở khóa xung nhịp Kernel Windows 11 xuống 0.5ms
-                  if (HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll")) {
-                      auto ntQuery = reinterpret_cast<PFN_NtQueryTimerResolution>(
-                          GetProcAddress(hNtdll, "NtQueryTimerResolution")
-                      );
-                      auto ntSet = reinterpret_cast<PFN_NtSetTimerResolution>(
-                          GetProcAddress(hNtdll, "NtSetTimerResolution")
-                      );
-                      if (ntSet) {
-                          ULONG minRes = 0, maxRes = 5000, curRes = 0;
-                          if (ntQuery) {
-                              ntQuery(&minRes, &maxRes, &curRes);
-                          }
-                          ntSet(maxRes, TRUE, &curRes);
-                      }
-                  }
-
-                  if (HMODULE hWinmm = LoadLibraryW(L"winmm.dll")) {
-                      auto timeBegin = reinterpret_cast<PFN_timeBeginPeriod>(
-                          GetProcAddress(hWinmm, "timeBeginPeriod")
-                      );
-                      s_timeEndPeriod = reinterpret_cast<PFN_timeEndPeriod>(
-                          GetProcAddress(hWinmm, "timeEndPeriod")
-                      );
-                      if (timeBegin) {
-                          timeBegin(1);
-                      }
-                  }
-
-                  s_highResTimer = CreateWaitableTimerExW(
-                      nullptr,
-                      nullptr,
-                      CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-                      TIMER_ALL_ACCESS
-                  );
-
-                  // 2. Nâng quyền ưu tiên CPU & Khóa vùng nhớ cho máy 8GB RAM (Chống tràn Pagefile)
-                  HANDLE hProcess = GetCurrentProcess();
-                  HANDLE hThread = GetCurrentThread();
-                  SetPriorityClass(hProcess, HIGH_PRIORITY_CLASS);
-                  SetThreadPriority(hThread, THREAD_PRIORITY_HIGHEST);
-                  SetProcessPriorityBoost(hProcess, FALSE);
-                  SetThreadPriorityBoost(hThread, FALSE);
-
-                  // Giữ tối thiểu 256MB - 1.5GB Working Set trong RAM vật lý để không bị khựng khi chơi
-                  SetProcessWorkingSetSizeEx(
-                      hProcess,
-                      static_cast<SIZE_T>(256ULL * 1024ULL * 1024ULL),
-                      static_cast<SIZE_T>(1536ULL * 1024ULL * 1024ULL),
-                      0
-                  );
-
-                  if (HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll")) {
-                      auto setProcInfo = reinterpret_cast<PFN_SetProcessInformation>(
-                          GetProcAddress(hKernel32, "SetProcessInformation")
-                      );
-                      auto setThreadInfo = reinterpret_cast<PFN_SetThreadInformation>(
-                          GetProcAddress(hKernel32, "SetThreadInformation")
-                      );
-
-                      if (setProcInfo) {
-                          // Tắt EcoQoS Power Throttling
-                          Win11PowerThrottling throttling = { 1, 0x1 | 0x4, 0 };
-                          setProcInfo(hProcess, 4, &throttling, sizeof(throttling));
-
-                          // Đặt Memory Priority = 5 (Cao nhất) để Windows 11 trên máy 8GB RAM không nén RAM của GD
-                          Win11MemoryPriority memPrio = { 5 };
-                          setProcInfo(hProcess, 1, &memPrio, sizeof(memPrio));
-                      }
-                      if (setThreadInfo) {
-                          Win11PowerThrottling threadThrottling = { 1, 0x1, 0 };
-                          setThreadInfo(hThread, 11, &threadThrottling, sizeof(threadThrottling));
-                      }
-                  }
-
-                  // 3. Đăng ký MMCSS Games Critical Priority
-                  if (HMODULE hAvrt = LoadLibraryW(L"avrt.dll")) {
-                      auto avSetChars = reinterpret_cast<PFN_AvSetMmThreadCharsW>(
-                          GetProcAddress(hAvrt, "AvSetMmThreadCharacteristicsW")
-                      );
-                      auto avSetPrio = reinterpret_cast<PFN_AvSetMmThreadPriority>(
-                          GetProcAddress(hAvrt, "AvSetMmThreadPriority")
-                      );
-                      s_avRevert = reinterpret_cast<PFN_AvRevertMmThreadChars>(
-                          GetProcAddress(hAvrt, "AvRevertMmThreadCharacteristics")
-                      );
-                      if (avSetChars) {
-                          DWORD taskIdx = 0;
-                          s_mmcssHandle = avSetChars(L"Games", &taskIdx);
-                          if (s_mmcssHandle && avSetPrio) {
-                              avSetPrio(s_mmcssHandle, 2);
-                          }
-                      }
-                  }
-
-                  if (HMODULE hDwm = LoadLibraryW(L"dwmapi.dll")) {
-                      s_dwmEnableMMCSS = reinterpret_cast<PFN_DwmEnableMMCSS>(
-                          GetProcAddress(hDwm, "DwmEnableMMCSS")
-                      );
-                      if (s_dwmEnableMMCSS) {
-                          s_dwmEnableMMCSS(TRUE);
-                      }
-                  }
-
-                  QueryPerformanceFrequency(&s_qpcFreq);
-                  LARGE_INTEGER now;
-                  QueryPerformanceCounter(&now);
-                  s_nextFrameTick = now.QuadPart;
-                  s_lastSwapTick = now.QuadPart;
-
-                  s_kernelReady = true;
-              }
-
-              struct MX350LifecycleGuard {
-                  ~MX350LifecycleGuard() {
-                      if (!s_kernelReady) return;
-                      if (s_highResTimer) {
-                          CloseHandle(s_highResTimer);
-                          s_highResTimer = nullptr;
-                      }
-                      if (s_mmcssHandle && s_avRevert) {
-                          s_avRevert(s_mmcssHandle);
-                          s_mmcssHandle = nullptr;
-                      }
-                      if (s_dwmEnableMMCSS) {
-                          s_dwmEnableMMCSS(FALSE);
-                      }
-                      if (s_timeEndPeriod) {
-                          s_timeEndPeriod(1);
-                      }
-                      s_kernelReady = false;
-                  }
-              };
-              static MX350LifecycleGuard s_guard;
-
-              // Tối ưu đường ống OpenGL siêu nhẹ cho NVIDIA MX350 (Không gọi glFlush gây nghẽn Optimus)
-              void optimizeMX350OpenGL() {
-                  if (!s_glSymbolsLoaded) {
-                      HMODULE hOgl = GetModuleHandleW(L"opengl32.dll");
-                      if (!hOgl) {
-                          hOgl = LoadLibraryW(L"opengl32.dll");
-                      }
-                      if (hOgl) {
-                          s_wglGetCurrentContext = reinterpret_cast<PFN_wglGetCurrentContext>(
-                              GetProcAddress(hOgl, "wglGetCurrentContext")
-                          );
-                          s_wglGetProcAddress = reinterpret_cast<PFN_wglGetProcAddress>(
-                              GetProcAddress(hOgl, "wglGetProcAddress")
-                          );
-                          s_glDisable = reinterpret_cast<PFN_glDisable>(
-                              GetProcAddress(hOgl, "glDisable")
-                          );
-                          s_glHint = reinterpret_cast<PFN_glHint>(
-                              GetProcAddress(hOgl, "glHint")
-                          );
-                      }
-                      s_glSymbolsLoaded = true;
-                  }
-
-                  HGLRC currentCtx = s_wglGetCurrentContext ? s_wglGetCurrentContext() : nullptr;
-
-                  // Chỉ thiết lập trạng thái OpenGL khi đổi Context hoặc mỗi 480 frame (1 giây/lần)
-                  if (currentCtx != s_lastGlContext || (s_frameCount % 480 == 0)) {
-                      s_lastGlContext = currentCtx;
-
-                      if (!s_wglSwapIntervalEXT && s_wglGetProcAddress) {
-                          s_wglSwapIntervalEXT = reinterpret_cast<PFN_wglSwapIntervalEXT>(
-                              s_wglGetProcAddress("wglSwapIntervalEXT")
-                          );
-                      }
-                      if (s_wglSwapIntervalEXT) {
-                          s_wglSwapIntervalEXT(0); // Mở khóa hoàn toàn giới hạn 60Hz
-                      }
-                      if (s_glDisable) {
-                          // Tắt MSAA nặng và bộ làm mờ cạnh để giải phóng băng thông 64-bit của MX350
-                          // đồng thời giữ pixel sắc nét 1:1, xóa nhòe hình và xóa vệt đen giữa các block
-                          s_glDisable(GL_MULTISAMPLE_CAP);
-                          s_glDisable(GL_POLYGON_SMOOTH_CAP);
-                          s_glDisable(GL_LINE_SMOOTH_CAP);
-                          s_glDisable(GL_DITHER_CAP);
-                      }
-                      if (s_glHint) {
-                          s_glHint(GL_PERSPECTIVE_CORRECTION_CAP, GL_FASTEST_MODE);
-                      }
-                      unlockCocosLimiter();
-                  }
-              }
-
-              // Quét Click chuột 0-Syscall: Chỉ gọi PeekMessageW khi thực sự có thao tác nhấn chuột/phím
-              void pollFastInput480Hz() {
-                  if (HIWORD(GetQueueStatus(QS_MOUSE | QS_KEY | QS_RAWINPUT)) != 0) {
-                      MSG msg;
-                      while (PeekMessageW(&msg, nullptr, WM_MOUSEFIRST, WM_MOUSELAST, PM_REMOVE | PM_NOYIELD)) {
-                          TranslateMessage(&msg);
-                          DispatchMessageW(&msg);
-                      }
-                      while (PeekMessageW(&msg, nullptr, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE | PM_NOYIELD)) {
-                          TranslateMessage(&msg);
-                          DispatchMessageW(&msg);
-                      }
-                  }
-              }
-
-              void paceFrameMX350() {
-                  if (!s_kernelReady) {
-                      initMX350And8GBRamBoost();
-                  }
-
-                  ++s_frameCount;
-
-                  LARGE_INTEGER now;
-                  QueryPerformanceCounter(&now);
-
-                  // Tương thích Eclipse Menu: nếu FPS đang được đẩy vượt 520 FPS thì mở trần hoàn toàn
-                  LONGLONG rawDelta = now.QuadPart - s_lastSwapTick;
-                  s_lastSwapTick = now.QuadPart;
-                  if (rawDelta > 0 && rawDelta < (s_qpcFreq.QuadPart / 540)) {
-                      s_nextFrameTick = now.QuadPart;
-                      return;
-                  }
-
-                  double exactTicks = (static_cast<double>(s_qpcFreq.QuadPart) * FLOOR_FRAME_TIME) + s_tickRemainder;
-                  LONGLONG stepTicks = static_cast<LONGLONG>(exactTicks);
-                  s_tickRemainder = exactTicks - static_cast<double>(stepTicks);
-
-                  // Tán xạ vệt xé hình trên màn 60Hz theo tỷ lệ vàng
-                  double goldenPhase = std::fmod(static_cast<double>(s_frameCount) * 0.61803398875, 1.0) - 0.5;
-                  LONGLONG ditherTicks = static_cast<LONGLONG>(goldenPhase * (s_qpcFreq.QuadPart / 280000));
-
-                  s_nextFrameTick += stepTicks;
-                  LONGLONG targetTick = s_nextFrameTick + ditherTicks;
-
-                  // Nếu frame của MX350 hoàn thành trễ hơn 2.083ms, xuất hình ngay lập tức không chờ!
-                  if (now.QuadPart >= targetTick) {
-                      if (now.QuadPart > targetTick + (stepTicks * 2)) {
-                          s_nextFrameTick = now.QuadPart;
-                      }
-                      return;
-                  }
-
-                  LONGLONG remainingTicks = targetTick - now.QuadPart;
-                  double remainingSec = static_cast<double>(remainingTicks) / static_cast<double>(s_qpcFreq.QuadPart);
-
-                  if (remainingSec > 0.00090 && s_highResTimer != nullptr) {
-                      LARGE_INTEGER dueTime;
-                      dueTime.QuadPart = -static_cast<LONGLONG>((remainingSec - 0.00045) * 10000000.0);
-                      if (dueTime.QuadPart < 0) {
-                          SetWaitableTimer(s_highResTimer, &dueTime, 0, nullptr, nullptr, FALSE);
-                          WaitForSingleObject(s_highResTimer, 1);
-                      }
-                  }
-
-                  do {
-                      YieldProcessor();
-                      QueryPerformanceCounter(&now);
-                  } while (now.QuadPart < targetTick);
-              }
-          }
-
-          class $modify(MX350Scheduler, CCScheduler) {
-              void update(float dt) {
-                  MX350HyperEngine::initMX350And8GBRamBoost();
-                  MX350HyperEngine::pollFastInput480Hz();
-
-                  constexpr float floorDt = static_cast<float>(FLOOR_FRAME_TIME);
-                  float timeScale = this->getTimeScale();
-                  float idealStep = (timeScale > 0.0f) ? (floorDt * timeScale) : floorDt;
-
-                  // Single-Pass Zero-Drift: Chỉ chạy 1 bước cập nhật mỗi frame để MX350 không bị quá tải
-                  if (dt > 0.0f && dt < idealStep * 0.85f) {
-                      CCScheduler::update(dt);
-                      return;
-                  }
-
-                  if (dt >= idealStep * 0.85f && dt <= 0.05f) {
-                      MX350HyperEngine::s_physicsDebt += (dt - idealStep);
-                      MX350HyperEngine::s_physicsDebt = clampVal(MX350HyperEngine::s_physicsDebt, -idealStep * 2.0f, idealStep * 2.0f);
-
-                      float correction = clampVal(MX350HyperEngine::s_physicsDebt * 0.20f, -0.00015f, 0.00015f);
-                      MX350HyperEngine::s_physicsDebt -= correction;
-
-                      CCScheduler::update(idealStep + correction);
-                  } else {
-                      MX350HyperEngine::s_physicsDebt = 0.0f;
-                      CCScheduler::update(idealStep);
-                  }
-              }
-          };
-
-          class $modify(MX350EGLView, CCEGLView) {
-              void swapBuffers() {
-                  MX350HyperEngine::optimizeMX350OpenGL();
-                  MX350HyperEngine::paceFrameMX350();
-                  CCEGLView::swapBuffers();
-              }
-          };
-
-          $on_mod(Loaded) {
-              MX350HyperEngine::initMX350And8GBRamBoost();
-
-              Loader::get()->queueInMainThread([]() {
-                  MX350HyperEngine::optimizeMX350OpenGL();
-                  MX350HyperEngine::unlockCocosLimiter();
-              });
-          }
-          '@
-          [System.IO.File]::WriteAllText("$PWD/src/main.cpp", $cppCode, (New-Object System.Text.UTF8Encoding($false)))
-
-      - name: Build Geode Mod
+      - name: Build Geode Mod (Primary)
         id: build
+        continue-on-error: true
         uses: geode-sdk/build-geode-mod@main
+        with:
+          use-lto: false
+
+      - name: Self-Healing Auto-Repair & Package Verification
+        shell: pwsh
+        run: |
+          $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue)
+          if ($geodeFiles.Count -gt 0) {
+            Write-Host "Primary build succeeded: $($geodeFiles[0].FullName)"
+            New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
+            Copy-Item $geodeFiles[0].FullName "artifact_out/yingseo.true480fps.geode" -Force
+            exit 0
+          }
+
+          Write-Host "Primary build did not output .geode file. Running Self-Healing Auto-Repair..."
+
+          # Đọc trực tiếp phiên bản VERSION và GEODE_GD_VERSION từ thư mục SDK đã cài trên máy chủ
+          $sdkPath = $env:GEODE_SDK
+          if (!$sdkPath -or !(Test-Path $sdkPath)) {
+            $foundCmake = Get-ChildItem -Path "C:\" -Filter "GeodeFile.cmake" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($foundCmake) {
+              $sdkPath = $foundCmake.Directory.Parent.FullName
+              $env:GEODE_SDK = $sdkPath
+            }
+          }
+
+          if ($sdkPath -and (Test-Path "$sdkPath/VERSION")) {
+            $diskGeodeVer = (Get-Content "$sdkPath/VERSION" -Raw).Trim() -replace '^v',''
+            $diskGdVer = "2.2081"
+            if (Test-Path "$sdkPath/CMakeLists.txt") {
+              $sdkCmake = Get-Content "$sdkPath/CMakeLists.txt" -Raw
+              if ($sdkCmake -match 'GEODE_GD_VERSION\s+"?([0-9\.]+)"?') {
+                $diskGdVer = $Matches[1]
+              }
+            }
+            Write-Host "Detected disk SDK version: $diskGeodeVer | GD version: $diskGdVer"
+            $json = Get-Content "mod.json" -Raw | ConvertFrom-Json
+            $json.geode = $diskGeodeVer
+            $json.gd.win = $diskGdVer
+            $modStr = $json | ConvertTo-Json -Depth 10
+            [System.IO.File]::WriteAllText("$PWD/mod.json", $modStr, (New-Object System.Text.UTF8Encoding($false)))
+          }
+
+          if (Test-Path "build") { Remove-Item "build" -Recurse -Force }
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+          cmake --build build --config Release
+
+          $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue)
+          if ($geodeFiles.Count -gt 0) {
+            New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
+            Copy-Item $geodeFiles[0].FullName "artifact_out/yingseo.true480fps.geode" -Force
+            exit 0
+          }
+
+          Write-Error "Build failed after self-healing attempt."
+          exit 1
 
       - name: Upload Geode Package
         uses: actions/upload-artifact@v4
         with:
-          name: True480FPS-MX350-v10
-          path: ${{ steps.build.outputs.build-output }}
+          name: True480FPS-MX350-v11
+          path: |
+            artifact_out/*.geode
+            **/*.geode
