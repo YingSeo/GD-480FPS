@@ -8,18 +8,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Generate Mod (v19.0) and External FPS Bypass Tool
+      - name: Generate Mod (v19.1) and External FPS Bypass Tool
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if (Test-Path "main.cpp") { Remove-Item "main.cpp" -Force }
           if (Test-Path "build") { Remove-Item "build" -Recurse -Force }
+          if (Test-Path "external_tool") { Remove-Item "external_tool" -Recurse -Force }
           if (Test-Path "ext_build") { Remove-Item "ext_build" -Recurse -Force }
           if (!(Test-Path "src")) { New-Item -ItemType Directory -Path "src" | Out-Null }
-          if (!(Test-Path "external_tool")) { New-Item -ItemType Directory -Path "external_tool" | Out-Null }
 
-          # 1. Tự động tạo Icon logo.png (256x256) cho Geode Mod
+          # 1. Tự động vẽ Icon logo.png (256x256) cho Geode Mod
           Add-Type -AssemblyName System.Drawing
           $bmp = New-Object System.Drawing.Bitmap(256, 256)
           $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -74,15 +74,15 @@ jobs:
               win = "2.2081"
             }
             id = "yingseo.true480fps"
-            name = "True 240 FPS Zero-Delay Engine v19"
-            version = "v19.0.0"
+            name = "True 240 FPS Zero-Delay Engine v19.1"
+            version = "v19.1.0"
             developer = "YingSeo"
             description = "Zero Music Delay, Zero Input Lag, DXGI Anti-Tear & External Booster Sync."
             "early-load" = $true
           } | ConvertTo-Json -Depth 10
           [System.IO.File]::WriteAllText("$PWD/mod.json", $modJson, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 4. Tạo CMakeLists.txt cho Geode Mod
+          # 4. Tạo CMakeLists.txt chuẩn Geode v5
           $cmake = @(
             'cmake_minimum_required(VERSION 3.21)',
             'set(CMAKE_CXX_STANDARD 23)',
@@ -108,7 +108,7 @@ jobs:
           ) -join "`n"
           [System.IO.File]::WriteAllText("$PWD/CMakeLists.txt", $cmake, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 5. Tạo src/main.cpp (Bản v19.0: Không chạm CCScheduler -> 0% Delay Nhạc, IAT Micro-Poll -> 0% Delay Click & Không tụt 210 FPS)
+          # 5. Tạo src/main.cpp (Đã sửa lỗi importDir.VirtualAddress ở dòng 314)
           $cppLines = @(
             '#include <Geode/Geode.hpp>',
             '#include <Geode/modify/CCEGLView.hpp>',
@@ -119,15 +119,11 @@ jobs:
             '',
             'using namespace geode::prelude;',
             '',
-            '// Ép Driver NVIDIA Optimus chạy trên card rời GeForce MX350',
             'extern "C" {',
             '    __declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;',
             '    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;',
             '}',
             '',
-            '// Đặt mục tiêu nội bộ ở 242.5 Hz:',
-            '// 1. Bù trừ 0.04ms hao hụt vòng lặp để FPS thực tế ghim cứng ở 240 FPS (không bị rớt xuống 210 FPS).',
-            '// 2. Lệch pha với bội số chẵn 4 x 60Hz (240.0) để đường xé hình không đứng yên ở giữa màn hình!',
             'constexpr double DEFAULT_240_TARGET_FPS = 242.5;',
             '',
             'constexpr unsigned int GL_DITHER_CAP                   = 0x0BD0;',
@@ -139,11 +135,10 @@ jobs:
             'constexpr unsigned int GL_FASTEST_MODE                 = 0x1101;',
             '',
             'namespace {',
-            '    // Cấu trúc bộ nhớ chia sẻ (IPC) kết nối trực tiếp với Tool chạy bên ngoài',
             '    struct SharedBoosterIPC {',
-            '        std::uint32_t magic;       // 0x47443234 ("GD24")',
-            '        float         targetFps;   // 242.5f (240 Lock), 360.0f, hoặc 480.0f',
-            '        std::uint32_t forceFlush;  // 1 = Làm mới bộ đệm chống đơ',
+            '        std::uint32_t magic;',
+            '        float         targetFps;',
+            '        std::uint32_t forceFlush;',
             '    };',
             '',
             '    struct Win11PowerThrottling {',
@@ -229,11 +224,11 @@ jobs:
             '    template <typename T>',
             '    void configureGameManagerVars(T* gm, float targetFps) {',
             '        if (!gm) return;',
-            '        gm->setGameVariable("0023", false); // Tắt Smooth Fix (Chống chậm màn chơi & đơ hình)',
-            '        gm->setGameVariable("0030", false); // Tắt V-Sync',
-            '        gm->setGameVariable("0116", true);  // Bật Custom FPS Bypass',
-            '        gm->setGameVariable("0155", false); // Giữ hình ảnh sắc nét nguyên bản',
-            '        gm->setGameVariable("0136", true);  // Giảm lag âm thanh FMOD',
+            '        gm->setGameVariable("0023", false);',
+            '        gm->setGameVariable("0030", false);',
+            '        gm->setGameVariable("0116", true);',
+            '        gm->setGameVariable("0155", false);',
+            '        gm->setGameVariable("0136", true);',
             '',
             '        if constexpr (requires { gm->m_customFPSTarget = 242.5f; }) {',
             '            gm->m_customFPSTarget = targetFps;',
@@ -274,10 +269,6 @@ jobs:
             '    static bool s_cocosLoaded = false;',
             '    static bool s_iatHooked = false;',
             '',
-            '    // 1. Thay thế Sleep(1) trong bảng IAT của libcocos2d.dll:',
-            '    // - Xóa bỏ hoàn toàn hiện tượng ngủ lố 1.95ms của Windows 11 (nguyên nhân làm FPS tụt từ 240 xuống 210).',
-            '    // - Giúp vòng lặp CCApplication::run() liên tục quay về kiểm tra PeekMessage mỗi ~0.02ms,',
-            '    //   nhận thao tác Click chuột tức thì (Zero Input Delay) mà không cần bộ đếm phụ!',
             '    void WINAPI HookedMicroPollSleep(DWORD dwMilliseconds) {',
             '        if (GetCurrentThreadId() == s_mainThreadId && dwMilliseconds <= 2) {',
             '            SwitchToThread();',
@@ -301,7 +292,7 @@ jobs:
             '        auto importDir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];',
             '        if (!importDir.VirtualAddress || !importDir.Size) return;',
             '',
-            '        auto* importDesc = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(base + importDir.FirstThunk ? importDir.VirtualAddress : importDir.VirtualAddress);',
+            '        auto* importDesc = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(base + importDir.VirtualAddress);',
             '        for (; importDesc->Name; ++importDesc) {',
             '            auto* thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(base + importDesc->FirstThunk);',
             '            for (; thunk->u1.Function; ++thunk) {',
@@ -316,9 +307,6 @@ jobs:
             '        }',
             '    }',
             '',
-            '    // 2. Cấu hình NVIDIA Control Panel (NVAPI):',
-            '    // - TẮT Triple Buffering (0x20FF7493 = 0) để xóa hoàn toàn độ trễ khi nhấn chuột.',
-            '    // - BẬT Prefer Layered on DXGI Swapchain (0x20D9718C = 0x00002002) để xóa sọc ngang trên màn 60Hz!',
             '    void configureNvidiaDXGILayeredSwapchain() {',
             '        HMODULE hNvapi = LoadLibraryW(L"nvapi64.dll");',
             '        if (!hNvapi) return;',
@@ -351,11 +339,11 @@ jobs:
             '                    drsSetSetting(hSession, hProfile, &s);',
             '                };',
             '                setDword(0x1057EB71, 0x00000001); // Prefer Maximum Performance',
-            '                setDword(0x007BA09E, 0x00000001); // Max Pre-Rendered Frames = 1 (Zero Click Delay)',
-            '                setDword(0x20FF7493, 0x00000000); // OpenGL Triple Buffering = OFF (Xóa trễ chuột)',
-            '                setDword(0x20D9718C, 0x00002002); // Vulkan/OpenGL Present Method = Prefer Layered on DXGI Swapchain (Xóa sọc ngang!)',
+            '                setDword(0x007BA09E, 0x00000001); // Max Pre-Rendered Frames = 1',
+            '                setDword(0x20FF7493, 0x00000000); // OpenGL Triple Buffering = OFF',
+            '                setDword(0x20D9718C, 0x00002002); // Prefer Layered on DXGI Swapchain (Xóa sọc ngang màn 60Hz)',
             '                setDword(0x00E73211, 0xFFFFFFF6); // Texture Filtering = High Performance',
-            '                setDword(0x20C1221E, 0x00000002); // Threaded Optimization = Off (Chống đơ game)',
+            '                setDword(0x20C1221E, 0x00000002); // Threaded Optimization = Off',
             '                setDword(0x00A879CF, 0x08416747); // V-Sync = Force Off',
             '                setDword(0x10F9DC81, 0x00000001); // Optimus High-Performance GPU = MX350',
             '                drsSave(hSession);',
@@ -480,7 +468,6 @@ jobs:
             '    };',
             '    static LifecycleGuard s_guard;',
             '',
-            '    // Chỉ cập nhật AnimationInterval khi có thay đổi (Không bao giờ gọi toggleVerticalSync lặp lại gây đơ game!)',
             '    void syncTargetFrameRate(bool forceApply = false) {',
             '        if (!s_cocosLoaded) {',
             '            if (HMODULE hCocos = GetModuleHandleW(L"libcocos2d.dll")) {',
@@ -531,7 +518,6 @@ jobs:
             '        }',
             '',
             '        HGLRC currentCtx = s_wglGetCurrentContext ? s_wglGetCurrentContext() : nullptr;',
-            '        // Chỉ cấu hình OpenGL ĐÚNG 1 LẦN khi tạo cửa sổ (Xóa bỏ hoàn toàn lỗi đơ game mỗi 256 frame!)',
             '        if (currentCtx != s_lastGlContext) {',
             '            s_lastGlContext = currentCtx;',
             '            if (s_wglGetProcAddress) {',
@@ -563,13 +549,11 @@ jobs:
             '            }',
             '            syncTargetFrameRate(true);',
             '        } else if ((s_frameCounter & 127) == 0) {',
-            '            // Kiểm tra tín hiệu từ Tool bên ngoài cực nhẹ (không gọi lại toggleVerticalSync)',
             '            syncTargetFrameRate(false);',
             '        }',
             '    }',
             '}',
             '',
-            '// 1. Hook GameManager: Khóa cấu hình chuẩn khi mở game',
             'class $modify(ZeroDelayGameManager19, GameManager) {',
             '    bool init() {',
             '        if (!GameManager::init()) return false;',
@@ -579,7 +563,6 @@ jobs:
             '    }',
             '};',
             '',
-            '// 2. Hook GJBaseGameLayer: Đồng bộ khi vào màn chơi (Không chạm vào update(dt) để nhạc khớp 100%)',
             'class $modify(ZeroDelayBaseGameLayer19, GJBaseGameLayer) {',
             '    bool init() {',
             '        if (!GJBaseGameLayer::init()) return false;',
@@ -589,7 +572,6 @@ jobs:
             '    }',
             '};',
             '',
-            '// 3. Hook CCEGLView: Lật hình tức thì không chặn luồng + Đẩy glFlush() sau khi lật để giảm trễ Click tối đa',
             'class $modify(ZeroDelayEGLView19, CCEGLView) {',
             '    void swapBuffers() {',
             '        ZeroDelayEngineV19::onSwapBuffersOncePerContext();',
@@ -609,7 +591,37 @@ jobs:
           ) -join "`n"
           [System.IO.File]::WriteAllText("$PWD/src/main.cpp", $cppLines, (New-Object System.Text.UTF8Encoding($false)))
 
-          # 6. Tạo mã nguồn cho TOOL CHẠY BÊN NGOÀI (external_tool/booster.cpp)
+      - name: Build Geode Mod (Primary)
+        id: build
+        continue-on-error: true
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          use-lto: false
+
+      - name: Self-Healing Build & Package Both Mod + External Tool
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          function Ensure-LogoInGeodePackage([string]$geodePath) {
+            if ((Test-Path $geodePath) -and (Test-Path "$PWD/logo.png")) {
+              $zip = [System.IO.Compression.ZipFile]::Open($geodePath, [System.IO.Compression.ZipArchiveMode]::Update)
+              $existing = $zip.GetEntry("logo.png")
+              if (-not $existing) {
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, "$PWD/logo.png", "logo.png") | Out-Null
+                Write-Host "Injected logo.png into $geodePath"
+              }
+              $zip.Dispose()
+            }
+          }
+
+          New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
+
+          # 1. Biên dịch Tool chạy bên ngoài (GD-External-FPS-Booster.exe) trong thư mục tạm $env:RUNNER_TEMP
+          $extSrcDir = Join-Path $env:RUNNER_TEMP "gd_ext_tool_src"
+          $extBldDir = Join-Path $env:RUNNER_TEMP "gd_ext_tool_bld"
+          New-Item -ItemType Directory -Path $extSrcDir -Force | Out-Null
+
           $extCpp = @(
             '#ifndef WIN32_LEAN_AND_MEAN',
             '#define WIN32_LEAN_AND_MEAN',
@@ -680,14 +692,11 @@ jobs:
             '            CloseHandle(snap);',
             '        }',
             '    }',
-            '',
             '    if (!pid) return;',
             '    HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);',
             '    if (!hProc) return;',
-            '',
             '    SetPriorityClass(hProc, ABOVE_NORMAL_PRIORITY_CLASS);',
             '    SetProcessPriorityBoost(hProc, FALSE);',
-            '',
             '    if (HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll")) {',
             '        auto setProcInfo = reinterpret_cast<PFN_SetProcessInformation>(GetProcAddress(hKernel32, "SetProcessInformation"));',
             '        if (setProcInfo) {',
@@ -699,8 +708,7 @@ jobs:
             '}',
             '',
             'int main() {',
-            '    SetConsoleTitleW(L"GD 2.2081 External FPS Bypass & MX350 Booster Tool v19.0");',
-            '',
+            '    SetConsoleTitleW(L"GD 2.2081 External FPS Bypass & MX350 Booster Tool v19.1");',
             '    if (HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll")) {',
             '        auto ntQuery = reinterpret_cast<PFN_NtQueryTimerResolution>(GetProcAddress(hNtdll, "NtQueryTimerResolution"));',
             '        auto ntSet   = reinterpret_cast<PFN_NtSetTimerResolution>(GetProcAddress(hNtdll, "NtSetTimerResolution"));',
@@ -729,7 +737,7 @@ jobs:
             '    }',
             '',
             '    std::printf("==================================================================\n");',
-            '    std::printf("   GEOMETRY DASH 2.2081 - EXTERNAL FPS BYPASS & RAM BOOSTER v19   \n");',
+            '    std::printf("   GEOMETRY DASH 2.2081 - EXTERNAL FPS BYPASS & RAM BOOSTER v19.1 \n");',
             '    std::printf("   Optimized for: Windows 11 | 8GB RAM | NVIDIA GeForce MX350     \n");',
             '    std::printf("==================================================================\n\n");',
             '    std::printf(" [+] Kernel Timer Resolution : LOCKED AT 0.50 ms\n");',
@@ -762,7 +770,6 @@ jobs:
             '            if (ipc) { ipc->forceFlush = 1; }',
             '            std::printf(" [>] Da giai phong RAM ngam cho may 8GB va lam moi tien trinh GD!\n");',
             '        }',
-            '',
             '        if (++tick >= 20) {',
             '            tick = 0;',
             '            DWORD pid = FindGeometryDashPID();',
@@ -780,7 +787,7 @@ jobs:
             '    return 0;',
             '}'
           ) -join "`n"
-          [System.IO.File]::WriteAllText("$PWD/external_tool/booster.cpp", $extCpp, (New-Object System.Text.UTF8Encoding($false)))
+          [System.IO.File]::WriteAllText("$extSrcDir/booster.cpp", $extCpp, (New-Object System.Text.UTF8Encoding($false)))
 
           $extCmake = @(
             'cmake_minimum_required(VERSION 3.21)',
@@ -788,46 +795,16 @@ jobs:
             'set(CMAKE_CXX_STANDARD 20)',
             'add_executable(GD-External-FPS-Booster booster.cpp)'
           ) -join "`n"
-          [System.IO.File]::WriteAllText("$PWD/external_tool/CMakeLists.txt", $extCmake, (New-Object System.Text.UTF8Encoding($false)))
+          [System.IO.File]::WriteAllText("$extSrcDir/CMakeLists.txt", $extCmake, (New-Object System.Text.UTF8Encoding($false)))
 
-      - name: Build External FPS Bypass Tool (.exe)
-        shell: pwsh
-        run: |
-          cmake -S external_tool -B ext_build -DCMAKE_BUILD_TYPE=Release
-          cmake --build ext_build --config Release
-          New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
-          $exeFile = Get-ChildItem -Path "ext_build" -Filter "GD-External-FPS-Booster.exe" -Recurse | Select-Object -First 1
+          cmake -S "$extSrcDir" -B "$extBldDir" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$extBldDir" --config Release
+          $exeFile = Get-ChildItem -Path "$extBldDir" -Filter "GD-External-FPS-Booster.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($exeFile) {
             Copy-Item $exeFile.FullName "artifact_out/GD-External-FPS-Booster.exe" -Force
-            Write-Host "Built GD-External-FPS-Booster.exe successfully!"
           }
 
-      - name: Build Geode Mod (Primary)
-        id: build
-        continue-on-error: true
-        uses: geode-sdk/build-geode-mod@main
-        with:
-          use-lto: false
-
-      - name: Self-Healing Build & Package Both Mod + External Tool
-        shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-          function Ensure-LogoInGeodePackage([string]$geodePath) {
-            if ((Test-Path $geodePath) -and (Test-Path "$PWD/logo.png")) {
-              $zip = [System.IO.Compression.ZipFile]::Open($geodePath, [System.IO.Compression.ZipArchiveMode]::Update)
-              $existing = $zip.GetEntry("logo.png")
-              if (-not $existing) {
-                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, "$PWD/logo.png", "logo.png") | Out-Null
-                Write-Host "Injected logo.png into $geodePath"
-              }
-              $zip.Dispose()
-            }
-          }
-
-          New-Item -ItemType Directory -Path "artifact_out" -Force | Out-Null
-
+          # 2. Kiểm tra và đóng gói file .geode
           $geodeFiles = @(Get-ChildItem -Path . -Filter "*.geode" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch "artifact_out" })
           if ($geodeFiles.Count -gt 0) {
             Ensure-LogoInGeodePackage $geodeFiles[0].FullName
@@ -878,5 +855,5 @@ jobs:
       - name: Upload Mod and External Tool Suite
         uses: actions/upload-artifact@v4
         with:
-          name: True240FPS-Suite-v19
+          name: True240FPS-Suite-v19.1
           path: artifact_out/*
